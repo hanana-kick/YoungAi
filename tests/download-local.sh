@@ -138,11 +138,11 @@ cmp "$T/original-shard" "$C/engram/$shard"
 echo 'PASS: interrupted Engram download resumed via HTTP Range'
 
 # Same-sized content corruption is rejected by the published LFS SHA256.
-printf X | dd of=\"$C/engram/$shard\" bs=1 seek=0 conv=notrunc status=none
-if bash \"$C/download.sh\" engram --skip-space-check >\"$T/engram-corrupt.log\" 2>&1; then
+printf X | dd of="$C/engram/$shard" bs=1 seek=0 conv=notrunc status=none
+if bash "$C/download.sh" engram --skip-space-check >"$T/engram-corrupt.log" 2>&1; then
     echo 'Expected Engram SHA256 verification failure' >&2; exit 1
 fi
-cp \"$T/original-shard\" \"$C/engram/$shard\"
+cp "$T/original-shard" "$C/engram/$shard"
 echo 'PASS: Engram SHA256 rejects same-sized tampering'
 
 # Refuse to overwrite an existing corrupted file.
