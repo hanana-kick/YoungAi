@@ -100,12 +100,33 @@ download_file() {
         valid_file "$dest" "$size" "$sha" && return 0
         die "Existing file failed verification (not overwritten): $dest"
     fi
+    # An interrupted run can leave a fully transferred *.download file.
+    # Verify it before asking the server for an impossible EOF byte range.
+    if [[ -n "$size" || -n "$sha" ]]; then
+        if valid_file "$tmp" "$size" "$sha"; then
+            mv -- "$tmp" "$dest"
+            return 0
+        fi
+    else
+        # Small metadata without an advertised hash/size is always re-fetched.
+        rm -f -- "$tmp"
+    fi
     for attempt in 1 2; do
         printf 'Downloading %s (attempt %s)\n' "${dest#"$ROOT"/}" "$attempt"
-        curl --fail --location --retry 8 --retry-all-errors --retry-delay 3 \
+        if curl --fail --location --retry 8 --retry-all-errors --retry-delay 3 \
             --connect-timeout 30 --progress-bar --continue-at - \
-            --output "$tmp" "$url" ||
-            die "Transfer interrupted; partial file preserved: $tmp"
+            --output "$tmp" "$url"; then
+            :
+        else
+            rc=$?
+            if [[ "$rc" == 33 && "$attempt" == 1 ]]; then
+                # Server does not accept HTTP Range; retry this file from zero.
+                printf 'Resume not supported, restarting: %s\n' "$dest" >&2
+                rm -f -- "$tmp"
+                continue
+            fi
+            die "Transfer interrupted; partial file preserved: $tmp (curl: $rc)"
+        fi
         if valid_file "$tmp" "$size" "$sha"; then
             mv -- "$tmp" "$dest"
             return 0

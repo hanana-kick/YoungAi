@@ -136,6 +136,12 @@ head -c 15 "$T/original-shard" >"$C/engram/$shard.download"
 bash "$C/download.sh" engram --skip-space-check >"$T/range.log" 2>&1 || { cat "$T/range.log" >&2; exit 1; }
 cmp "$T/original-shard" "$C/engram/$shard"
 echo 'PASS: interrupted Engram download resumed via HTTP Range'
+# Crash after full transfer but before atomic rename: do not request bytes at EOF.
+mv "$C/engram/$shard" "$C/engram/$shard.download"
+bash "$C/download.sh" engram --skip-space-check >"$T/complete-temp.log" 2>&1 ||
+    { cat "$T/complete-temp.log" >&2; exit 1; }
+cmp "$T/original-shard" "$C/engram/$shard"
+echo 'PASS: fully downloaded temporary file finalized without re-fetch'
 
 # Same-sized content corruption is rejected by the published LFS SHA256.
 printf X | dd of="$C/engram/$shard" bs=1 seek=0 conv=notrunc status=none
