@@ -9,8 +9,7 @@
 원하는 경로 자체에 저장소를 복제합니다. 경로에는 공백을 포함해도 됩니다.
 
 ```bash
-# PR 병합 전에는 작업 브랜치를 명시합니다.
-git clone --branch feat/local-serving https://github.com/hanana-kick/YoungAi.git /data/youngai
+git clone https://github.com/hanana-kick/YoungAi.git /data/youngai
 cd /data/youngai
 bash setup.sh
 ```
@@ -25,6 +24,7 @@ bash setup.sh
 ```text
 /data/youngai/
 ├── setup.sh
+├── download.sh               # 모델, 코딩 사이드카, Engram 다운로드
 ├── run.sh                    # setup.sh가 생성, Git에서 제외
 ├── bin/ds4-server            # 소스에서 빌드한 바이너리
 ├── src/                     # 소스 및 Makefile의 .o 빌드 산출물
@@ -34,10 +34,44 @@ bash setup.sh
 └── .runtime/                # HOME, 임시 파일, XDG/HF/CUDA/컴파일러 캐시
 ```
 
-`setup.sh`는 **가중치를 다운로드하지 않습니다**. 요청한 빌드/실행 준비와
-수백 GB의 다운로드를 분리했습니다. 기존 파일을 아래 위치로 복사/이동하거나
-해당 경로로 직접 다운로드하십시오. 분할 배포 GGUF는 먼저 하나로 결합해야 합니다.
-기존 외부 가중치에 심볼릭 링크를 걸면 디렉터리 삭제만으로 삭제되지 않으므로 사용하지 않습니다.
+## 가중치 다운로드 (별도 실행)
+
+빌드와 모델 다운로드는 분리되어 있습니다. `setup.sh`는 다운로드하지 않으며,
+`download.sh`는 **Python, HF CLI, 사전 빌드 바이너리, upstream install.sh를 실행하지 않습니다.**
+다운로드 파일은 저장소 하위의 `weights/`, `engram/` 및 `.runtime/download/`에만 저장합니다.
+
+```bash
+bash setup.sh
+bash download.sh                # 전체: GGUF + 코딩 사이드카 + Engram
+bash download.sh model          # GGUF 40개 조각 다운로드/조립만
+bash download.sh sidecar        # 코딩 사이드카만
+bash download.sh engram         # Engram 47, 48번 샤드만
+# 또는 미러를 직접 지정:
+HF_ENDPOINT=https://hf-mirror.com bash download.sh
+```
+
+필수 도구: `bash`, `curl`, `jq`, `sha256sum`, `awk`, `stat`,
+`truncate`, `df`, `flock`, `realpath` 및 기본 GNU 유틸리티.
+별도 `sudo`나 전역 패키지 설치는 수행하지 않습니다.
+
+최초 전체 설치에 약 **330GB 이상의 빈 공간**을 준비하십시오.
+모델은 총 **113,556,639,424바이트**이며, 공식 Engram 2개 샤드가
+약 **203GB**입니다. 모델 GGUF를 모두 중복 저장하는 대신 조각을
+하나씩 SHA256 검증 → 이어 붙이기 → 개별 조각 삭제합니다.
+따라서 모델 결합 중 추가 공간은 조각 하나와 여유 공간뿐입니다.
+
+다운로드는 먼저 Hugging Face 저장소 커밋을 `.runtime/download/*.revision`에
+고정해, 실행 중 upstream이 바뀌어도 조각이 섞이지 않도록 합니다.
+재실행하면 HTTP Range 이어받기와 **마지막 완료 조각 경계부터 조립 재개**를
+수행합니다. 모델 조각 및 최종 GGUF는 배포자가 제공하는 `SHA256SUMS`와
+검증합니다. Engram/사이드카는 Hugging Face가 제공하는 파일 크기와,
+해당 메타데이터에 SHA256이 있는 경우 해시도 검증합니다.
+검증 실패한 기존 완성 파일을 조용히 덮어쓰지 않습니다.
+
+`--skip-space-check`는 공간 사전 검사를 무시합니다. 테스트 목적 이외에는
+권장하지 않습니다. 새 릴리스로 변경할 때는 기존 가중치를 백업/삭제한 뒤
+해당 `.runtime/download/*.revision`을 제거해야 하며, 이 스크립트가
+임의로 모델 리비전을 업데이트하지는 않습니다.
 
 ```text
 weights/DeepSeek-V4.1-Flash-vq8sh14-q4k-mtpnative.gguf
@@ -46,9 +80,9 @@ engram/model-00047-of-00048.safetensors
 engram/model-00048-of-00048.safetensors
 ```
 
-모델 원본: https://huggingface.co/wenzhouwu/YoungAi-DeepSeek-V4.1-Flash
-공식 Engram 샤드: https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash
-사이드카는 코딩용 한 개만 지정하며 post-training 파일은 자동 적용하지 않습니다.
+모델: https://huggingface.co/wenzhouwu/YoungAi-DeepSeek-V4.1-Flash
+Engram: https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash
+실험용 Finance Post-training 및 다른 도메인 Sidecar는 기본 다운로드에서 제외합니다.
 
 ## 실행
 
@@ -140,9 +174,10 @@ OpenAI Model 공식 필드:
 
 ```bash
 bash tests/local-serving.sh
+bash tests/download-local.sh    # 수십 KB짜리 로컬 HF mock 서버를 이용한 다운로드·재개 검증
 ```
 
-테스트에는 C 컴파일러와 Node.js가 필요합니다. 서빙/설치에는 Node.js나 Python이 필요하지 않습니다.
+테스트에는 C 컴파일러와 Node.js가 필요합니다. 서빙/다운로드/설치에는 Node.js나 Python이 필요하지 않습니다.
 모델 ID 파서, 실제 모델 JSON 직렬화 코드, 출력 상한, 경로 이동, 로컬 캐시,
 런처 생성/보존/기본값을 가중치 없이 테스트합니다. 빌드 호출 및 런처 테스트는
 가짜 make/서버를 사용하므로 실제 CUDA 빌드나 추론 성능 테스트를 대체하지 않습니다.

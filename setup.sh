@@ -12,7 +12,8 @@ Defaults: CUDA_ARCH=native, JOBS=4; run.sh uses port 8000 and model ID big.
 --skip-build        Generate run.sh/directories without compiling (offline preview).
 --force-run-script  Replace run.sh, backing up an existing script in ./logs/.
 No sudo, package installation, model download, service registration or shell edits.
-Place weights and Engram shards under this checkout; see docs/LOCAL_SERVING.md.
+Run bash download.sh separately to fetch GGUF + coding sidecar + Engram.
+Use bash download.sh to fetch weights and Engram into this checkout; see docs/LOCAL_SERVING.md.
 HELP
 }
 while (($#)); do
@@ -72,5 +73,5 @@ else
 fi
 printf 'Root: %s\nBinary: %s/bin/ds4-server\nLauncher: %s/run.sh\n' "$ROOT" "$ROOT" "$ROOT"
 printf 'Defaults: HOST=127.0.0.1 PORT=8000 SERVED_MODEL_NAME=big\n'
-printf 'Weights were NOT downloaded. Place them under weights/ and engram/.\n'
+printf 'Weights were NOT downloaded. Run bash download.sh to fetch them.\n'
 printf 'Preview: ./run.sh --dry-run\nGuide: docs/LOCAL_SERVING.md\n'

@@ -5,7 +5,7 @@ cd -- "$ROOT"
 mkdir -p "$ROOT/.runtime/tmp"
 T=$(mktemp -d "$ROOT/.runtime/tmp/local-serving.XXXXXXXX")
 trap 'rm -rf -- "$T"' EXIT
-for file in setup.sh scripts/local-env.sh scripts/run.sh.in; do bash -n "$file"; done
+for file in setup.sh download.sh scripts/local-env.sh scripts/run.sh.in; do bash -n "$file"; done
 CC=${CC:-cc}
 "$CC" -std=c99 -Wall -Wextra -Werror -I. tests/model_info_test.c \
     src/server/server_model_info.c -o "$T/model-info"
