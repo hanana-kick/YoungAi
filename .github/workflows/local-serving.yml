@@ -1,0 +1,21 @@
+name: Local serving
+on:
+  push:
+    branches: [restructure, feat/local-serving]
+  pull_request:
+    branches: [restructure]
+permissions:
+  contents: read
+jobs:
+  model-free-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Local setup and model metadata tests (no weights)
+        run: bash tests/local-serving.sh
+      - name: Compile-check the modified server translation units
+        run: >-
+          cc -std=c99 -D_GNU_SOURCE -DDS4_NO_GPU -Wall -Wextra -I.
+          -fsyntax-only src/server/server_config.c src/server/server_httpd.c
+          src/server/server_model_info.c

@@ -68,3 +68,12 @@ route_alpha_set
 /*.jpeg
 /*.jpg
 /*.png
+
+# Local serving: everything remains below the checked-out source directory.
+/bin/
+/weights/
+/engram/
+/logs/
+/.runtime/
+/run.sh
+/run.sh.new

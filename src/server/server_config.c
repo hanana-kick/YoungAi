@@ -1,7 +1,6 @@
 /* server_config.c — 机械拆分自 ds4_server.c (12787-13152 行): 命令行解析与 usage。 */
-
 #include "server_internal.h"
-
+#include "server_model_info.h"
 /* ★客户端不给上限 = 不设上限, 界就是 ctx − 提示★(2026-09-22, 用户令"SERVER_DEFAULT_MAX_TOKENS = 393,216
  * 不要, 这些东西都不对")。以前这里写死 393216(384K), 是一个谁也说不出依据的数: 1M 上下文下它比 ctx 小,
  * 等于服务端替客户端定了一个没人知道的闸。生成该停在哪只有两个合法答案 —— 模型吐 EOS, 或者位置撞到 ctx;
@@ -12,7 +11,6 @@
 #ifndef DS4_NO_GPU
 #include "ds4_gpu.h"
 #endif
-
 static int parse_int_arg(const char *s, const char *opt) {
     char *end = NULL;
     long v = strtol(s, &end, 10);
@@ -22,7 +20,6 @@ static int parse_int_arg(const char *s, const char *opt) {
     }
     return (int)v;
 }
-
 static int parse_nonneg_int_arg(const char *s, const char *opt) {
     char *end = NULL;
     long v = strtol(s, &end, 10);
@@ -32,7 +29,6 @@ static int parse_nonneg_int_arg(const char *s, const char *opt) {
     }
     return (int)v;
 }
-
 static float parse_float_arg(const char *s, const char *opt, float minv, float maxv) {
     char *end = NULL;
     float v = strtof(s, &end);
@@ -42,7 +38,6 @@ static float parse_float_arg(const char *s, const char *opt, float minv, float m
     }
     return v;
 }
-
 static const char *need_arg(int *i, int argc, char **argv, const char *opt) {
     if (*i + 1 >= argc) {
         server_log(DS4_LOG_DEFAULT, "ds4-server: missing value for %s", opt);
@@ -234,6 +229,7 @@ void usage(FILE *fp) {
         "      Show this help.\n");
     fprintf(fp, "\nDistributed inference:\n");
     ds4_dist_usage(fp);
+    server_model_usage(fp);
 }
 
 static ds4_backend parse_backend_arg(const char *s, const char *arg) {
@@ -256,6 +252,7 @@ static ds4_backend default_server_backend(void) {
 }
 
 server_config parse_options(int argc, char **argv) {
+    server_model_options_reset();
     server_config c = {
         .engine = {
             .model_path = "ds4flash.gguf",
@@ -286,6 +283,7 @@ server_config parse_options(int argc, char **argv) {
     bool directional_steering_scale_set = false;
     for (int i = 1; i < argc; i++) {
         const char *arg = argv[i];
+        if (server_model_parse_option(arg, &i, argc, argv)) continue;
         if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) {
             usage(stdout);
             exit(0);
@@ -393,6 +391,7 @@ server_config parse_options(int argc, char **argv) {
             c.host = need_arg(&i, argc, argv, arg);
         } else if (!strcmp(arg, "--port")) {
             c.port = parse_int_arg(need_arg(&i, argc, argv, arg), arg);
+            if (c.port > 65535) { fprintf(stderr, "ds4-server: --port must be 1..65535\n"); exit(2); }
         } else if (!strcmp(arg, "--cors")) {
             c.enable_cors = true;
         } else if (!strcmp(arg, "--trace")) {
@@ -495,5 +494,6 @@ server_config parse_options(int argc, char **argv) {
         server_log(DS4_LOG_DEFAULT, "ds4-server: %s", dist_err);
         exit(2);
     }
+    server_model_set_path(c.engine.model_path);
     return c;
 }

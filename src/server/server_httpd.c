@@ -1,6 +1,8 @@
 /* server_httpd.c — 机械拆分自 ds4_server.c (12449-12786 行): HTTP 读写/模型列表/客户端线程。 */
 
 #include "server_internal.h"
+#include "server_model_info.h"
+#include <inttypes.h>
 
 static void http_request_free(http_request *r) {
     free(r->body);
@@ -103,50 +105,42 @@ fail:
     return false;
 }
 
-void append_model_json_values(buf *b, const char *id, const char *name,
-                                     int ctx, int default_tokens) {
-    const int max_completion = default_tokens < ctx ? default_tokens : ctx;
-    buf_printf(b,
-        "{\"id\":");
+static void append_model_json_full(buf *b, const char *id, const char *name,
+                                   int ctx, int default_tokens, int hard_limit) {
+    const int max_completion = server_model_token_limit(ctx, hard_limit);
+    const int default_completion = server_model_token_limit(max_completion, default_tokens);
+    buf_puts(b, "{\"id\":");
     json_escape(b, id);
-    buf_puts(b,
-        ",\"object\":\"model\","
-        "\"created\":1767225600,"
-        "\"owned_by\":\"ds4.c\","
-        "\"name\":");
+    buf_printf(b, ",\"object\":\"model\",\"created\":%" PRId64
+                  ",\"owned_by\":\"ds4.c\",\"shutdown_date\":null,\"name\":",
+               server_model_created());
     json_escape(b, name);
-    buf_printf(b,
-        ","
-        "\"context_length\":%d,"
-        "\"top_provider\":{"
-            "\"context_length\":%d,"
-            "\"max_completion_tokens\":%d,"
-            "\"is_moderated\":false},"
-        "\"supported_parameters\":["
-            "\"tools\","
-            "\"tool_choice\","
-            "\"max_tokens\","
-            "\"temperature\","
-            "\"top_p\","
-            "\"top_k\","
-            "\"min_p\","
-            "\"frequency_penalty\","
-            "\"presence_penalty\","
-            "\"stop\","
-            "\"seed\","
-            "\"stream\","
-            "\"reasoning_effort\"]}",
-        ctx,
-        ctx,
-        max_completion);
+    buf_puts(b, ",\"root\":");
+    json_escape(b, server_model_root(id));
+    buf_printf(b, ",\"parent\":null,\"context_length\":%d,\"max_model_len\":%d,"
+                  "\"max_completion_tokens\":%d,\"default_max_tokens\":%d,"
+                  "\"top_provider\":{\"context_length\":%d,"
+                      "\"max_completion_tokens\":%d,\"is_moderated\":false},"
+                  "\"supported_parameters\":[\"tools\",\"tool_choice\",\"max_tokens\","
+                      "\"temperature\",\"top_p\",\"top_k\",\"min_p\","
+                      "\"frequency_penalty\",\"presence_penalty\",\"stop\","
+                      "\"seed\",\"stream\",\"reasoning_effort\"]}",
+               ctx, ctx, max_completion, default_completion, ctx, max_completion);
+}
+
+/* Retain the existing test/helper API; production distinguishes default and cap. */
+void append_model_json_values(buf *b, const char *id, const char *name,
+                              int ctx, int default_tokens) {
+    append_model_json_full(b, id, name, ctx, default_tokens, default_tokens);
+}
+
+static const char *public_model_id(const server *s) {
+    return server_served_model_name(server_model_id_from_engine(s->engine));
 }
 
 static void append_model_json(buf *b, const server *s, const char *id) {
-    append_model_json_values(b,
-                             id,
-                             ds4_engine_model_name(s->engine),
-                             server_ctx_size(s),
-                             s->default_tokens);
+    append_model_json_full(b, id, ds4_engine_model_name(s->engine),
+                           server_ctx_size(s), s->default_tokens, s->max_output_tokens);
 }
 
 static bool send_model(server *s, int fd, const char *id) {
@@ -161,9 +155,8 @@ static bool send_model(server *s, int fd, const char *id) {
 static bool send_models(server *s, int fd) {
     buf b = {0};
     buf_puts(&b, "{\"object\":\"list\",\"data\":[");
-    append_model_json(&b, s, "deepseek-v4-flash");
-    buf_putc(&b, ',');
-    append_model_json(&b, s, "deepseek-v4-pro");
+    /* There is one loaded model, not a synthetic Flash + Pro pair. */
+    append_model_json(&b, s, public_model_id(s));
     buf_puts(&b, "]}\n");
     bool ok = http_response(fd, s->enable_cors, 200, "application/json", b.ptr);
     buf_free(&b);
@@ -231,10 +224,16 @@ void *client_main(void *arg) {
     const char *model_path_prefix = "/v1/models/";
     const size_t model_path_prefix_len = strlen(model_path_prefix);
     if (!strcmp(hr.method, "GET") &&
-        !strncmp(hr.path, model_path_prefix, model_path_prefix_len) &&
-        server_model_alias_known(hr.path + model_path_prefix_len))
+        !strncmp(hr.path, model_path_prefix, model_path_prefix_len))
     {
-        send_model(s, fd, hr.path + model_path_prefix_len);
+        if (server_model_path_matches(hr.path + model_path_prefix_len, public_model_id(s))) {
+            send_model(s, fd, public_model_id(s));
+        } else {
+            http_response(fd, s->enable_cors, 404, "application/json",
+                "{\"error\":{\"message\":\"Model not found\","
+                "\"type\":\"invalid_request_error\",\"param\":\"model\","
+                "\"code\":\"model_not_found\"}}\n");
+        }
         http_request_free(&hr);
         goto done;
     }
@@ -287,9 +286,11 @@ void *client_main(void *arg) {
         goto done;
     }
     if (s->force_nothink) req.think_mode = DS4_THINK_NONE;
-    if (!req.model_from_request) {
+    /* Parse reasoning aliases first, then use one identity for every response,
+     * including SSE, Responses and Anthropic Messages. Keep legacy request aliases. */
+    if (server_model_has_alias() || !req.model_from_request) {
         free(req.model);
-        req.model = xstrdup(server_model_id_from_engine(s->engine));
+        req.model = xstrdup(public_model_id(s));
     }
     if (request_exceeds_context(&req, ctx_size)) {
         http_error_context_length_exceeded(fd, s->enable_cors, &req, req.prompt.len, ctx_size);
