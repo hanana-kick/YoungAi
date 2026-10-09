@@ -154,7 +154,7 @@ model_remaining() {
 parse_index() {
     local file=$1 path=$2
     jq -er --arg path "$path" \
-      '.[] | select(.type == "file" and .path == $path) | [.size, (.lfs.oid // "" | sub("^sha256:";""))] | @tsv' \
+      '.[] | select(.type == "file" and .path == $path) | [.size, (.lfs.sha256 // .lfs.oid // "" | sub("^sha256:";""))] | @tsv' \
       "$file" | head -n 1
 }
 # Returns a pinned repo tree, not branch main; partial reruns never mix versions.
@@ -256,7 +256,7 @@ download_sidecar() {
         count=$((count+1))
     done < <(jq -r --arg prefix "$SIDECAR/" \
         '.[] | select(.type == "file" and (.path | startswith($prefix))) |
-         [.path, (.size | tostring), (.lfs.oid // "" | sub("^sha256:";""))] | @tsv' "$index")
+         [.path, (.size | tostring), (.lfs.sha256 // .lfs.oid // "" | sub("^sha256:";""))] | @tsv' "$index")
     (( count > 0 )) || die "No coding sidecar files were returned by Hugging Face"
     [[ -s "$WEIGHTS/$SIDECAR/manifest.txt" ]] || die "Coding sidecar manifest.txt missing"
     printf 'Verified coding sidecar: %s (%s files)\n' "$WEIGHTS/$SIDECAR" "$count"

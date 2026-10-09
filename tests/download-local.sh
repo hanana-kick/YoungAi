@@ -52,11 +52,11 @@ for (const [i, name] of shards.entries()) {
 }
 const sideIndex = [...side.keys()].map(name => {
     const p = SIDE + '/' + name, b = files.get(REPO + '/' + p);
-    return {path:p,type:'file',size:b.length,lfs:{oid:sha(b)}};
+    return {path:p,type:'file',size:b.length,lfs:{sha256:sha(b)}};
 });
 const shardIndex = shards.map(name => {
     const b = files.get(DREPO + '/' + name);
-    return {path:name,type:'file',size:b.length,lfs:{oid:sha(b)}};
+    return {path:name,type:'file',size:b.length,lfs:{sha256:sha(b)}};
 });
 function send(res,code,body,headers={}) {
     const b = Buffer.isBuffer(body) ? body : Buffer.from(JSON.stringify(body));
@@ -136,6 +136,14 @@ head -c 15 "$T/original-shard" >"$C/engram/$shard.download"
 bash "$C/download.sh" engram --skip-space-check >"$T/range.log" 2>&1 || { cat "$T/range.log" >&2; exit 1; }
 cmp "$T/original-shard" "$C/engram/$shard"
 echo 'PASS: interrupted Engram download resumed via HTTP Range'
+
+# Same-sized content corruption is rejected by the published LFS SHA256.
+printf X | dd of=\"$C/engram/$shard\" bs=1 seek=0 conv=notrunc status=none
+if bash \"$C/download.sh\" engram --skip-space-check >\"$T/engram-corrupt.log\" 2>&1; then
+    echo 'Expected Engram SHA256 verification failure' >&2; exit 1
+fi
+cp \"$T/original-shard\" \"$C/engram/$shard\"
+echo 'PASS: Engram SHA256 rejects same-sized tampering'
 
 # Refuse to overwrite an existing corrupted file.
 printf BAD >>"$C/weights/$MODEL"
