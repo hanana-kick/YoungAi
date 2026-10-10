@@ -16,8 +16,8 @@ jobs:
         run: bash tests/local-serving.sh
       - name: Offline download, checksum and resume tests (mock HF server)
         run: bash tests/download-local.sh
-      - name: Audit Chinese literals in production code (report only)
-        run: node tools/audit-runtime-language.js
+      - name: Enforce Korean-only inference runtime messages
+        run: node tools/audit-runtime-language.js --serving-only
       - name: Compile-check the modified server translation units
         run: >-
           cc -std=c99 -D_GNU_SOURCE -DDS4_NO_GPU -Wall -Wextra -I.
