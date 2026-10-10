@@ -30,13 +30,13 @@ int main(int argc, char **argv) {
     if (v41) {
         cfg.ctx_size = ds4_engine_v41_ctx();
         if (cfg.kv_disk_dir) {
-            server_log(DS4_LOG_DEFAULT, "ds4-server: V4.1 没有会话 KV, 磁盘 KV 缓存(%s)不开", cfg.kv_disk_dir);
+            server_log(DS4_LOG_DEFAULT, "ds4-server: V4.1은 세션 KV를 지원하지 않으므로 디스크 KV 캐시(%s)를 비활성화합니다", cfg.kv_disk_dir);
             cfg.kv_disk_dir = NULL;
         }
         /* --batch N(≥2, 2026-09-30 batch.md): V4.1 并发调度器 —— N 条请求各自预填(一次一路)后合批解码, 权重每步只读一遍。
          * 不传 = 单 worker 一次一条(带投机)。 */
-        server_log(DS4_LOG_DEFAULT, "ds4-server: V4.1 服务路: 每条请求整段预填, 上下文 %d(模型元数据 deepseek4.context_length, 状态按本趟位置分配)%s",
-                   cfg.ctx_size, cfg.batch_max >= 2 ? ", 并发调度器开(server_sched_v41.c)" : "");
+        server_log(DS4_LOG_DEFAULT, "ds4-server: V4.1 서빙: 요청별 전체 프리필, 컨텍스트 %d(모델 메타데이터 deepseek4.context_length; 요청별 상태 할당)%s",
+                   cfg.ctx_size, cfg.batch_max >= 2 ? ", 동시 요청 스케줄러 활성화(server_sched_v41.c)" : "");
     } else {
         log_context_memory(cfg.engine.backend, cfg.ctx_size);
     }
@@ -114,7 +114,7 @@ int main(int argc, char **argv) {
     s.mon = mon_open(&s);   /* 监控数据面要先于 worker 存在: worker 一拿到 job 就打点 */
     if (s.batch_max >= 2 && !v41)
         server_log(DS4_LOG_GENERATION,
-                   "ds4-server: 并发批处理已开 (最多 %d 路合批; 仅非流式/无工具的 chat 请求)",
+                   "ds4-server: 동시 배치 처리 활성화(최대 %d개 요청; 스트리밍·도구 호출 없는 채팅 요청만)",
                    s.batch_max);
     if (pthread_create(&worker, NULL, worker_main, &s) != 0) die("failed to start worker");
 

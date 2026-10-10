@@ -225,7 +225,7 @@ ds4_zchain *ds4_zchain_load(const char *path, uint32_t n_layer, uint32_t n_exper
     /* 说"DQZ2 载入"而不是"zchain loaded": 三文件部署里 --zchain 和 --finetune 是两个独立文件,
      * 走的却是同一个 DQZ2 读取函数 —— 原来那句让微调文件也打印成 "zchain loaded", 读起来像
      * 微调把 zchain 顶掉了。路径本身已经说明是哪一个, 别再冠名。 */
-    fprintf(stderr, "ds4: DQZ2 载入 %s: %u chain ops + %u GE layers + %u z^L layers + %u route layers over %u layers\n",
+    fprintf(stderr, "ds4: DQZ2 %s 로드: 체인 연산 %u개, GE 레이어 %u개, z^L 레이어 %u개, 라우팅 레이어 %u개 / 총 %u레이어\n",
             path, z->n_ops_total, z->n_ge_layers, n_zl, n_rte, n_layer);
     if (z->n_ops_total == 0 && z->n_ge_layers == 0 && n_zl == 0 && n_rte == 0) {
         fprintf(stderr, "ds4: zchain %s carries no ops; ignoring\n", path);

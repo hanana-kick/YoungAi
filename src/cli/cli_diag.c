@@ -75,14 +75,14 @@ int run_v41_generation(ds4_engine *engine, const cli_config *cfg, const ds4_toke
  * 所以单独开这个口子。它不改任何执行路径, 与 -p 走的是同一个 run_v41_generation。 */
 int run_gen_ids(ds4_engine *engine, const cli_config *cfg) {
     FILE *fi = fopen(cfg->gen.gen_ids_path, "r");
-    if (!fi) { fprintf(stderr, "ds4: --gen-ids 打不开 %s\n", cfg->gen.gen_ids_path); return 1; }
+    if (!fi) { fprintf(stderr, "ds4: --gen-ids: %s 파일을 열 수 없습니다\n", cfg->gen.gen_ids_path); return 1; }
     ds4_tokens prompt = {0};
     int t;
     while (fscanf(fi, "%d", &t) == 1) ds4_tokens_push(&prompt, t);
     fclose(fi);
-    if (prompt.len < 1) { fprintf(stderr, "ds4: --gen-ids 文件里没有 token id\n"); ds4_tokens_free(&prompt); return 1; }
-    if (!ds4_engine_is_v41(engine)) { fprintf(stderr, "ds4: --gen-ids 只接 V4.1 路\n"); ds4_tokens_free(&prompt); return 1; }
-    fprintf(stderr, "ds4: --gen-ids 提示 %d token(按 id 原样喂, 不重新分词)\n", prompt.len);
+    if (prompt.len < 1) { fprintf(stderr, "ds4: --gen-ids 파일에 토큰 ID가 없습니다\n"); ds4_tokens_free(&prompt); return 1; }
+    if (!ds4_engine_is_v41(engine)) { fprintf(stderr, "ds4: --gen-ids는 V4.1 경로에서만 지원됩니다\n"); ds4_tokens_free(&prompt); return 1; }
+    fprintf(stderr, "ds4: --gen-ids 프롬프트 %d토큰(ID 그대로 입력, 재토큰화 없음)\n", prompt.len);
     const int rc = run_v41_generation(engine, cfg, &prompt);
     ds4_tokens_free(&prompt);
     return rc;
@@ -90,7 +90,7 @@ int run_gen_ids(ds4_engine *engine, const cli_config *cfg) {
 
 int run_score_ids(ds4_engine *engine, const cli_config *cfg) {
     FILE *fi = fopen(cfg->gen.score_ids_path, "r");
-    if (!fi) { fprintf(stderr, "ds4: --score-ids 打不开 %s\n", cfg->gen.score_ids_path); return 1; }
+    if (!fi) { fprintf(stderr, "ds4: --score-ids: %s 파일을 열 수 없습니다\n", cfg->gen.score_ids_path); return 1; }
     int cap = 8192, n = 0, t;
     int *ids = malloc((size_t)cap * sizeof(int));
     while (fscanf(fi, "%d", &t) == 1) {
@@ -98,7 +98,7 @@ int run_score_ids(ds4_engine *engine, const cli_config *cfg) {
         ids[n++] = t;
     }
     fclose(fi);
-    if (n < 2) { fprintf(stderr, "ds4: score-ids 少于 2 token\n"); free(ids); return 1; }
+    if (n < 2) { fprintf(stderr, "ds4: --score-ids에 토큰이 2개 미만입니다\n"); free(ids); return 1; }
     /* ★取料模式(mtp.md M6)★: 同一份 ids, 改成"一位一块 + 每位跑一轮草稿器", 出 (草稿隐态, 主模型隐态) 对
      * 与首位一致率。必须配 --decoder-full —— 块 1 时 CED 会让非末块不出 logits, 靶直接是错的(不报错)。 */
     if (cfg->gen.dcap_path) {
@@ -110,7 +110,7 @@ int run_score_ids(ds4_engine *engine, const cli_config *cfg) {
         ds4_engine_v41_set_prof(cfg->gen.v41_prof);
         ds4_engine_v41_set_block(cfg->gen.dspark_block > 0 ? (unsigned)cfg->gen.dspark_block : 0u);
         if (!cfg->gen.decoder_full)
-            fprintf(stderr, "ds4: ★--dspark-capture 必须配 --decoder-full★(否则 CED 让每块不出 logits, 靶是错的)\n");
+            fprintf(stderr, "ds4: --dspark-capture에는 --decoder-full이 필수입니다(CED가 블록별 logits 출력을 생략해 평가 데이터가 잘못됨)\n");
         cli_v41_set_sampling(cfg);   /* 温度给接受率陪审团(温 0 = 只出贪心一致率) */
         const int rc = ds4_engine_v41_dspark_capture(engine, ids, n, cfg->gen.dcap_path, cfg->gen.dcap_prompt);
         free(ids);
@@ -128,7 +128,7 @@ int run_score_ids(ds4_engine *engine, const cli_config *cfg) {
     }
     ds4_session *session = NULL;
     if (ds4_session_create(&session, engine, cfg->gen.ctx_size) != 0) {
-        fprintf(stderr, "ds4: --score-ids 需要图会话后端\n"); free(ids); return 1;
+        fprintf(stderr, "ds4: --score-ids에는 그래프 세션 백엔드가 필요합니다\n"); free(ids); return 1;
     }
     char err[160];
     /* 首 token 走正常 S=1 sync 预填(与 --dump-logits 同路)。旧"CUDA 挂死绕道"(空会话
@@ -137,29 +137,29 @@ int run_score_ids(ds4_engine *engine, const cli_config *cfg) {
      * "cuda decode failed"(与模型无关, v2/allq2 同挂)。 */
     ds4_tokens first = { .v = ids, .len = 1, .cap = 1 };
     if (ds4_session_sync(session, &first, err, sizeof(err)) != 0) {
-        fprintf(stderr, "ds4: 首 token 预填失败: %s\n", err);
+        fprintf(stderr, "ds4: 첫 토큰 프리필 실패: %s\n", err);
         ds4_session_free(session); free(ids); return 1;
     }
     const int vocab = ds4_engine_vocab_size(engine);
     float *logits = malloc((size_t)vocab * sizeof(float));
     FILE *fo = fopen(cfg->gen.score_out_path ? cfg->gen.score_out_path : "/tmp/ds4_score.bin", "wb");
-    if (!fo || !logits) { fprintf(stderr, "ds4: score 输出打不开\n"); ds4_session_free(session); free(ids); return 1; }
+    if (!fo || !logits) { fprintf(stderr, "ds4: 점수 출력 파일을 열 수 없습니다\n"); ds4_session_free(session); free(ids); return 1; }
     int hd[2] = { n, vocab };
     fwrite(hd, 4, 2, fo);
     for (int i = 1; i <= n; i++) {
         if (ds4_session_copy_logits(session, logits, vocab) != vocab) {
-            fprintf(stderr, "ds4: 位置 %d 取 logits 失败\n", i - 1); break;
+            fprintf(stderr, "ds4: 위치 %d의 logits 획득 실패\n", i - 1); break;
         }
         fwrite(logits, 4, (size_t)vocab, fo);
         if (i == n) break;
         if (ds4_session_eval(session, ids[i], err, sizeof(err)) != 0) {
-            fprintf(stderr, "ds4: 位置 %d 强制喂入失败: %s\n", i, err); break;
+            fprintf(stderr, "ds4: 위치 %d의 강제 입력 실패: %s\n", i, err); break;
         }
         if (i % 128 == 0) fprintf(stderr, "[score] %d/%d\n", i, n);
     }
     fclose(fo); free(logits); free(ids);
     ds4_session_free(session);
-    fprintf(stderr, "[score] 完成 S=%d V=%d → %s\n", n, vocab,
+    fprintf(stderr, "[score] 완료 S=%d V=%d → %s\n", n, vocab,
             cfg->gen.score_out_path ? cfg->gen.score_out_path : "/tmp/ds4_score.bin");
     return 0;
 }

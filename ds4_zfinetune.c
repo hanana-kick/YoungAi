@@ -67,7 +67,7 @@ static int zf_take_rte(ds4_zchain *base, const ds4_zchain *add, uint32_t il, uin
     ds4_zchain_zl *b = &base->layer[il].rte;
     const size_t n = (size_t)a->zlk * (1u + ne + a->zdin);
     uint16_t *pay = (uint16_t *)malloc(n * sizeof(uint16_t));
-    if (!pay) { fprintf(stderr, "ds4: L%u RTE 载荷分配失败\n", il); return -1; }
+    if (!pay) { fprintf(stderr, "ds4: L%u RTE 데이터 할당 실패\n", il); return -1; }
     memcpy(pay, a->zlm, n * sizeof(uint16_t));
     free(base->layer[il].rtem_own);
     base->layer[il].rtem_own = pay;
@@ -78,7 +78,7 @@ static int zf_take_rte(ds4_zchain *base, const ds4_zchain *add, uint32_t il, uin
 int ds4_zfinetune_merge(ds4_zchain *base, const ds4_zchain *add) {
     if (!base || !add) return -1;
     if (base->n_layer != add->n_layer) {
-        fprintf(stderr, "ds4: finetune 层数 %u ≠ zchain 层数 %u\n", add->n_layer, base->n_layer);
+        fprintf(stderr, "ds4: 미세조정 레이어 수 %u ≠ zchain 레이어 수 %u\n", add->n_layer, base->n_layer);
         return -1;
     }
     const uint32_t dm = base->d_model, ne = base->n_expert;
@@ -88,9 +88,9 @@ int ds4_zfinetune_merge(ds4_zchain *base, const ds4_zchain *add) {
         const ds4_zchain_zl *r = &add->layer[il].rte;
         if (r->zlk) {                                            /* 路由形态: 只占空槽 */
             if (r->zdin != dm || !r->zlm) {
-                fprintf(stderr, "ds4: finetune L%u RTE din=%u 非法\n", il, r->zdin); return -1; }
+                fprintf(stderr, "ds4: 미세조정 L%u RTE din=%u가 유효하지 않습니다\n", il, r->zdin); return -1; }
             if (base->layer[il].rte.zlk) {
-                fprintf(stderr, "ds4: zchain L%u 已有 RTE, 两段各有各的 s 无法合并 — 拒绝\n", il);
+                fprintf(stderr, "ds4: zchain L%u에 이미 RTE가 있고 각 구간의 s가 달라 병합할 수 없습니다\n", il);
                 return -1;
             }
         }
@@ -98,17 +98,17 @@ int ds4_zfinetune_merge(ds4_zchain *base, const ds4_zchain *add) {
         const ds4_zchain_zl *b = &base->layer[il].zl;
         if (!a->zlk) continue;                                   /* 该层不微调 */
         if (a->zmul != 0u || a->zdin != dm || !a->zlm) {
-            fprintf(stderr, "ds4: finetune L%u 不是加性线性 z(zmul=%u din=%u) — 拒绝合并\n",
+            fprintf(stderr, "ds4: 미세조정 L%u가 가산형 선형 z가 아닙니다(zmul=%u din=%u); 병합 거부\n",
                     il, a->zmul, a->zdin);
             return -1;
         }
         if (b->zlk && (b->zmul != 0u || b->zdin != dm || !b->zlm)) {
-            fprintf(stderr, "ds4: zchain L%u 的 z^L 是乘性/ftA 形态(zmul=%u din=%u), 无法与加性微调合并\n",
+            fprintf(stderr, "ds4: zchain L%u의 z^L이 곱셈형/ftA(zmul=%u din=%u)이므로 가산형 미세조정과 병합할 수 없습니다\n",
                     il, b->zmul, b->zdin);
             return -1;
         }
         if ((uint64_t)b->zlk + a->zlk > DS4_AMP_ZK_MAX) {
-            fprintf(stderr, "ds4: L%u 合并秩 %u+%u 超上限 %d\n",
+            fprintf(stderr, "ds4: L%u의 병합 랭크 %u+%u가 제한 %d를 초과했습니다\n",
                     il, b->zlk, a->zlk, (int)DS4_AMP_ZK_MAX);
             return -1;
         }
@@ -133,9 +133,9 @@ int ds4_zfinetune_merge(ds4_zchain *base, const ds4_zchain *add) {
             k = b->zlk + a->zlk;
             pay = zf_concat_payload(b->zlm, b->zlk, a->zlm, a->zlk, dm, dm);
         }
-        if (!pay) { fprintf(stderr, "ds4: L%u 合并载荷分配失败\n", il); return -1; }
+        if (!pay) { fprintf(stderr, "ds4: L%u 병합 데이터 할당 실패\n", il); return -1; }
         ds4_z *zm = zf_zmod_from_payload(pay, k, dm, dm);
-        if (!zm) { free(pay); fprintf(stderr, "ds4: L%u zmod 重建失败\n", il); return -1; }
+        if (!zm) { free(pay); fprintf(stderr, "ds4: L%u zmod 재구성 실패\n", il); return -1; }
         /* 夹持取两者较小(更保守): 合并后一个 clip 管两段, 见 .h 的"夹持语义变化"。 */
         const float tr = (b->zlk && b->zltr < a->zltr) ? b->zltr : a->zltr;
         zf_zmod_free(b->zmod);
@@ -145,7 +145,7 @@ int ds4_zfinetune_merge(ds4_zchain *base, const ds4_zchain *add) {
         merged++;
     }
     if (!merged) {
-        fprintf(stderr, "ds4: finetune 里没有任何层带 z^L / RTE — 空侧车, 拒绝\n");
+        fprintf(stderr, "ds4: 미세조정에 z^L/RTE 레이어가 없어 빈 사이드카를 거부합니다\n");
         return -1;
     }
     return merged;

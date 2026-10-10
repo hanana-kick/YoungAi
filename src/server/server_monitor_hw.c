@@ -298,7 +298,7 @@ static void *sampler_main(void *arg) {
 
 void mon_hw_start(struct server_monitor *m) {
     if (pthread_create(&m->sampler, NULL, sampler_main, m) == 0) m->sampler_started = true;
-    else server_log(DS4_LOG_WARNING, "ds4-server: 监控采样线程起不来(%s); /metrics 的硬件读数全为 null", strerror(errno));
+    else server_log(DS4_LOG_WARNING, "ds4-server: 모니터링 샘플링 스레드 시작 실패(%s); /metrics의 하드웨어 측정값이 모두 null로 표시됩니다", strerror(errno));
 }
 
 void mon_hw_stop(struct server_monitor *m) {

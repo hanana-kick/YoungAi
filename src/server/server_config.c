@@ -352,7 +352,7 @@ server_config parse_options(int argc, char **argv) {
         } else if (!strcmp(arg, "-c") || !strcmp(arg, "--ctx")) {
             /* ★上下文没有参数★(用户 2026-09-22): 与 cli_opts.c 同一处理由。/v1/models 报的 context_length 与每条请求
              * 的 max_tokens 钳位都取 ds4_engine_v41_ctx()(模型元数据, server_main.c 起服时写进 ctx_size), 没有第二个数。 */
-            fprintf(stderr, "ds4-server: 上下文由模型元数据(deepseek4.context_length)决定, 没有 %s 这个参数\n", arg);
+            fprintf(stderr, "ds4-server: 컨텍스트 길이는 모델 메타데이터(deepseek4.context_length)로 결정되며 %s 옵션은 지원하지 않습니다\n", arg);
             exit(2);
         } else if (!strcmp(arg, "-n") || !strcmp(arg, "--tokens")) {
             c.default_tokens = parse_int_arg(need_arg(&i, argc, argv, arg), arg);

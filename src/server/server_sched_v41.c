@@ -56,7 +56,7 @@ static bool sched_prefill(server *s, v41_lane *P, int *nl, int n_dec, double *t_
         const uint64_t peak_mb = ds4_v41_req_prefill_bytes(g->prompt_tokens) >> 20;
         if (avail >= 0 && (uint64_t)avail < 2u * peak_mb) {
             if (n_dec > 0) return false;   /* 等解码道退出腾内存 */
-            server_log(DS4_LOG_DEFAULT, "ds4-server: %s ctx=%s 预填要 %llu MB 峰值(准入 2 倍), 余量只有 %ld MB, 装不下",
+            server_log(DS4_LOG_DEFAULT, "ds4-server: %s ctx=%s 프리필 최대 %llu MB 필요(허용 기준 2배), 사용 가능 %ld MB로 메모리가 부족합니다",
                        j->req.kind == REQ_CHAT ? "chat" : "completion", g->ctx_span, (unsigned long long)peak_mb, avail);
             lane_finish(P, 1); (*nl)--;   /* rc≠0 且没出过 token = 预填失败响应 */
             return true;
@@ -65,7 +65,7 @@ static bool sched_prefill(server *s, v41_lane *P, int *nl, int n_dec, double *t_
         if (!P->r) { lane_finish(P, 1); (*nl)--; return true; }
         P->phase = 2;
         mon_prefill(s, j->mon, g->prompt_tokens, 0, g->max_tokens);   /* 监控: 这条道开始读提示(准入等待不算读) */
-        server_log(DS4_LOG_PREFILL, "ds4-server: %s ctx=%s%s%s prompt start (V4.1 并发预填, decode_max=%d, 余量 %ld MB, 峰值 %llu MB, 同批解码 %d 路)",
+        server_log(DS4_LOG_PREFILL, "ds4-server: %s ctx=%s%s%s 프리필 시작(V4.1 동시 요청, 최대 출력=%d, 여유 메모리=%ld MB, 최대 사용량=%llu MB, 배치 디코드=%d개 요청)",
                    j->req.kind == REQ_CHAT ? "chat" : "completion", g->ctx_span, g->req_flags[0] ? " " : "", g->req_flags,
                    g->max_tokens, avail, (unsigned long long)peak_mb, n_dec);
     }
@@ -87,13 +87,13 @@ void v41_sched_run(server *s) {
     const int cap = s->batch_max;   /* 道数(同时活着的请求数) */
     /* 批态行数按解码小批核路上限(8)开, 不按道数: 投机的验证批每路 1+k 行, 行数只由引擎在 multi_round 里按 8 分配(装不下从 k 最大的路削) */
     struct ds4_v41_batch *b = ds4_v41_batch_open(s->engine, 8);
-    if (!b) die("ds4-server: V4.1 批态分配失败(--batch)");
+    if (!b) die("ds4-server: V4.1 배치 상태 할당에 실패했습니다(--batch)");
     v41_lane lanes[DS4_SERVER_BATCH_LANES];
     memset(lanes, 0, sizeof lanes);
     int nl = 0;
     uint64_t order = 0;
     double t_chunk = 0, t_dec = 0;   /* 时间片账: 上一块预填用时 / 之后解码累计 */
-    server_log(DS4_LOG_DEFAULT, "ds4-server: V4.1 并发调度器: 最多 %d 路合批解码, 预填一次一路, 时间片预填/解码各半, 准入 = 余量 ≥ 2 × 预填峰值(常驻 %llu MB/路)",
+    server_log(DS4_LOG_DEFAULT, "ds4-server: V4.1 동시 스케줄러: 최대 %d개 요청 배치 디코드, 요청별 프리필, 프리필/디코드 시간 균등 배분, 요청 허용 조건=여유 메모리 ≥ 최대 프리필 사용량 2배(요청당 상주 %llu MB)",
                cap, (unsigned long long)(ds4_v41_req_resident_bytes() >> 20));
     for (;;) {
         while (nl < cap && lane_admit(s, lanes, cap, &nl, &order, nl == 0)) {}

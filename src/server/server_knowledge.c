@@ -20,7 +20,7 @@ int g_knowledge_n;
 
 void knowledge_load(const char *path) {
     FILE *fp = fopen(path, "rb");
-    if (!fp) { fprintf(stderr, "ds4-server: --knowledge: 打不开 %s\n", path); return; }
+    if (!fp) { fprintf(stderr, "ds4-server: --knowledge: %s 파일을 열 수 없습니다\n", path); return; }
     fseek(fp, 0, SEEK_END); long sz = ftell(fp); fseek(fp, 0, SEEK_SET);
     if (sz <= 0) { fclose(fp); return; }
     char *all = xmalloc((size_t)sz + 1);
@@ -41,7 +41,7 @@ void knowledge_load(const char *path) {
         }
     }
     free(all);
-    fprintf(stderr, "ds4-server: knowledge-primer 载入 %d 参考块 (%s)\n", g_knowledge_n, path);
+    fprintf(stderr, "ds4-server: 지식 프라이머 참고 블록 %d개 로드(%s)\n", g_knowledge_n, path);
 }
 
 /* word-overlap 打分: query 的每个 ≥4 字符词在 block 里出现即 +1 (大小写不敏感的粗匹配)。

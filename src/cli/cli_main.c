@@ -120,7 +120,7 @@ int main(int argc, char **argv) {
             : (cfg.gen.route_daily ? cfg.gen.route_daily : cfg.engine.model_path);
         cfg.engine.model_path = picked;
         fprintf(stderr, "ds4: route -> Mode %s [%s] -> %s\n",
-                prog ? "P (编程/常驻快)" : "G (日常/全模型缓存)",
+                prog ? "P (코딩/상주 메모리 고속)" : "G (일반/전체 모델 캐시)",
                 prog ? "programming" : "daily", picked);
     }
     if (cfg.gen.dump_tokens) {
@@ -174,7 +174,7 @@ int main(int argc, char **argv) {
     if (ds4_engine_is_v41(engine)) cfg.gen.ctx_size = ds4_engine_v41_ctx();
     if (!cfg.inspect) {
         /* V4.1 不打 V4 那行"context buffer N MiB"估算: 它按 V4 会话算, 与 V4.1 无关, 09-20 就被当成真分配写进过脚本注释 */
-        if (ds4_engine_is_v41(engine)) fprintf(stderr, "ds4: V4.1 上下文 %d(模型元数据 deepseek4.context_length; 状态按本趟位置分配)\n", cfg.gen.ctx_size);
+        if (ds4_engine_is_v41(engine)) fprintf(stderr, "ds4: V4.1 컨텍스트 %d(모델 메타데이터 deepseek4.context_length; 요청별 상태 할당)\n", cfg.gen.ctx_size);
         else log_context_memory(cfg.engine.backend, cfg.gen.ctx_size);
         cli_warn_think_max_downgraded(&cfg.gen, "--think-max");
     }

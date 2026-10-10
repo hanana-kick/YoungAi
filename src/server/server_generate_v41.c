@@ -229,7 +229,7 @@ static const char *v41_finish(v41_gen *g) {
     if (g_stop_requested && strcmp(finish, "error") != 0) { finish = "error"; snprintf(err, sizeof(g->err), "shutdown requested"); }
     if (j->req.kind == REQ_CHAT && j->req.has_tools && g->saw_tool_start && !g->saw_tool_end && strcmp(finish, "error") != 0) {
         /* V4 路会给模型喂一条工具错误让它重发(要会话续写); 这里没有会话, 如实报错 */
-        server_log(DS4_LOG_WARNING, "ds4-server: chat ctx=%s%s%s unterminated tool call (V4.1: 无会话续写修复)",
+        server_log(DS4_LOG_WARNING, "ds4-server: chat ctx=%s%s%s 종결되지 않은 도구 호출(V4.1은 세션 이어쓰기 복구 미지원)",
                    g->ctx_span, g->req_flags[0] ? " " : "", g->req_flags);
         finish = "error"; snprintf(err, sizeof(g->err), "unterminated tool call");
     }
@@ -366,7 +366,7 @@ bool v41_gen_begin(server *s, job *j, v41_gen *g) {
     };
     const ds4_decode_sampling *sp = &g->sp;
     if (sp->temperature > 0.f || sp->dry_multiplier > 0.f || sp->freq_penalty != 0.f || sp->presence_penalty != 0.f)
-        server_log(DS4_LOG_GENERATION, "ds4-server: %s ctx=%s V4.1 解码采样 temp=%.2f top_p=%.2f min_p=%.2f top_k=%d seed=%llu dry=%.2f/%.2f/%d freq=%.2f presence=%.2f",
+        server_log(DS4_LOG_GENERATION, "ds4-server: %s ctx=%s V4.1 디코드 샘플링 temp=%.2f top_p=%.2f min_p=%.2f top_k=%d seed=%llu dry=%.2f/%.2f/%d freq=%.2f presence=%.2f",
                    v41_kind(g), g->ctx_span, (double)sp->temperature, (double)sp->top_p, (double)sp->min_p, sp->top_k, (unsigned long long)sp->seed,
                    (double)sp->dry_multiplier, (double)sp->dry_base, sp->dry_allowed_length, (double)sp->freq_penalty, (double)sp->presence_penalty);
     return true;
@@ -407,7 +407,7 @@ void generate_job_v41(server *s, job *j) {
     v41_gen g;
     if (!v41_gen_begin(s, j, &g)) return;
     ds4_engine_set_decode_sampling(&g.sp);   /* 单 worker ⇒ 全局设置面按请求覆写即可 */
-    server_log(DS4_LOG_PREFILL, "ds4-server: %s ctx=%s%s%s prompt start (V4.1 整段预填, decode_max=%d)",
+    server_log(DS4_LOG_PREFILL, "ds4-server: %s ctx=%s%s%s 프리필 시작(V4.1 전체 프리필, 최대 출력=%d)",
                v41_kind(&g), g.ctx_span, g.req_flags[0] ? " " : "", g.req_flags, g.max_tokens);
     ds4_engine_v41_set_progress(v41_progress_cb, &g);
     mon_prefill(s, j->mon, g.prompt_tokens, 0, g.max_tokens);   /* 监控: 排队结束, 开始读提示 */

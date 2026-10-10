@@ -18,7 +18,7 @@ static int cmp_dbl(const void *a, const void *b) { const double x = *(const doub
 
 int run_v41_multi_probe(ds4_engine *e, const cli_config *cfg, const ds4_tokens *prompt) {
     const int N = cfg->gen.multi_probe, steps = cfg->gen.n_predict > 0 ? cfg->gen.n_predict : 64;
-    if (N < 1 || N > 8) { fprintf(stderr, "ds4: --multi-probe 只收 1..8 路(解码小批核路上限)\n"); return 1; }
+    if (N < 1 || N > 8) { fprintf(stderr, "ds4: --multi-probe는 1~8개 요청만 허용합니다(배치 디코드 커널 제한)\n"); return 1; }
     ds4_engine_v41_set_prof(cfg->gen.v41_prof);
     ds4_engine_v41_set_decoder_full(cfg->gen.decoder_full);
     ds4_engine_v41_set_chunk(cfg->gen.v41_chunk);
@@ -34,17 +34,17 @@ int run_v41_multi_probe(ds4_engine *e, const cli_config *cfg, const ds4_tokens *
     /* 批态行数 = 解码小批核路上限 8, 不是路数: 投机的验证批每路要 1+k 行(N=1 就是 6 行; N=3 时 8 行只够 k=2,2,1)。
      * ★实撞(09-30 17:23)★: 按路数开批态, N=1 时 cap=1, 草稿每轮都出(走图 62 次)却被"装不下就削 k"削成 0 —— 投机 0 轮, 每轮还白付草稿 9 ms。 */
     struct ds4_v41_batch *b = ds4_v41_batch_open(e, 8);
-    if (!b) { fprintf(stderr, "ds4: 批态开不出来\n"); return 1; }
+    if (!b) { fprintf(stderr, "ds4: 배치 상태 생성에 실패했습니다\n"); return 1; }
     struct ds4_v41_req *r[8] = {0};
     int rc = 1;
     double t0 = now_sec();
     for (int i = 0; i < N; i++) {
         r[i] = ds4_v41_req_open(e, prompt->v, prompt->len, steps + 8, &sp);
-        if (!r[i]) { fprintf(stderr, "ds4: 第 %d 路请求态开不出来\n", i); goto out; }
+        if (!r[i]) { fprintf(stderr, "ds4: 요청 %d의 상태 생성 실패\n", i); goto out; }
         int prc;
         while ((prc = ds4_v41_req_prefill_step(r[i])) == 0) {}
-        if (prc < 0) { fprintf(stderr, "ds4: 第 %d 路预填失败\n", i); goto out; }
-        fprintf(stderr, "[multi] 第 %d 路预填 %d token 完, 首 token %d, 累计 %.1fs\n", i, prompt->len, ds4_v41_req_next(r[i]), now_sec() - t0);
+        if (prc < 0) { fprintf(stderr, "ds4: 요청 %d의 프리필 실패\n", i); goto out; }
+        fprintf(stderr, "[multi] 요청 %d: 프리필 %d토큰 완료, 첫 토큰 %d, 누적 %.1f초\n", i, prompt->len, ds4_v41_req_next(r[i]), now_sec() - t0);
     }
     double *ms = malloc((size_t)steps * sizeof(double));
     /* 各路吐出的 token 串(投机下各路每轮 k 不同、每轮吐出的个数不同, 门只能比整串): [路][steps+16] */
@@ -58,7 +58,7 @@ int run_v41_multi_probe(ds4_engine *e, const cli_config *cfg, const ds4_tokens *
     for (int s = 0; s < steps && !stop && ntok < steps; s++) {
         const double ts = now_sec();
         const int src = spec ? ds4_v41_multi_round(b, r, N) : ds4_v41_multi_step(b, r, N);
-        if (src != 0) { fprintf(stderr, "\nds4: 合批第 %d 轮失败\n", s); free(ms); free(seq); goto out; }
+        if (src != 0) { fprintf(stderr, "\nds4: 배치 디코드 %d번째 라운드 실패\n", s); free(ms); free(seq); goto out; }
         ms[done++] = (now_sec() - ts) * 1e3;
         int outi[16];
         for (int i = 0; i < N; i++) {
@@ -85,12 +85,12 @@ int run_v41_multi_probe(ds4_engine *e, const cli_config *cfg, const ds4_tokens *
         qsort(ms, (size_t)done, sizeof(double), cmp_dbl);
         const double med = done & 1 ? ms[done / 2] : 0.5 * (ms[done / 2 - 1] + ms[done / 2]);
         const double tpr = (double)ntok / done;   /* 每轮每路吐出的 token(投机 > 1)*/
-        fprintf(stderr, "[multi] %d 路 × %d 轮(%s): 每轮 中位 %.1f ms / 平均 %.1f / 最小 %.1f / 最大 %.1f, 每轮每路 %.2f token ⇒ 每路 %.1f t/s, 总 %.1f t/s(中位); 壁钟口径 每路 %.1f 总 %.1f\n",
-                N, done, spec ? "投机" : "纯解码", med, sum / done, ms[0], ms[done - 1], tpr, tpr * 1000.0 / med, N * tpr * 1000.0 / med,
+        fprintf(stderr, "[multi] %d개 요청 × %d라운드(%s): 라운드별 중앙값 %.1f ms / 평균 %.1f / 최소 %.1f / 최대 %.1f, 요청당 라운드 %.2f토큰 ⇒ 요청당 %.1f tok/s, 합산 %.1f tok/s(중앙값); 실제 경과시간 기준 요청당 %.1f, 합산 %.1f\n",
+                N, done, spec ? "추측 디코드" : "일반 디코드", med, sum / done, ms[0], ms[done - 1], tpr, tpr * 1000.0 / med, N * tpr * 1000.0 / med,
                 ntok / wall, N * ntok / wall);
-        if (spec) { int rd = 0, of = 0, ac = 0; ds4_v41_req_spec_stats(r[0], &rd, &of, &ac); fprintf(stderr, "[multi] 第 0 路投机 %d 轮, 出草稿 %d 位, 平均接受 %.2f 位\n", rd, of, rd ? (double)ac / rd : 0.0); }
+        if (spec) { int rd = 0, of = 0, ac = 0; ds4_v41_req_spec_stats(r[0], &rd, &of, &ac); fprintf(stderr, "[multi] 요청 0 추측 디코드 %d라운드, 초안 %d토큰, 평균 수락 %.2f토큰\n", rd, of, rd ? (double)ac / rd : 0.0); }
     }
-    fprintf(stderr, "[multi] 逐字节门: %d 路同提示温 0, 各路吐出的整串 %s(不同的路 %d), 第 0 路共 %d token\n", N, mismatch ? "★不同★" : "全同", mismatch, ntok);
+    fprintf(stderr, "[multi] 바이트 단위 검증: %d개 요청에서 동일 프롬프트/온도 0, 전체 출력 %s(불일치 요청 %d개), 요청 0의 전체 토큰 %d\n", N, mismatch ? "불일치" : "모두 동일", mismatch, ntok);
     free(ms);
     rc = mismatch ? 2 : 0;
 out:

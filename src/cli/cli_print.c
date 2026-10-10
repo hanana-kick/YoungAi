@@ -109,11 +109,11 @@ void usage(FILE *fp) {
         "  --engram-dir DIR\n"
         "      V4.1: folder holding the official n-gram table shards (else the path baked into the GGUF).\n"
         "  --cap-dir DIR | --cap-layers LO-HI | --eval-ids FILE | --eval-logits FILE |\n"
-        "  --eval-nll FILE (逐位 NLL, f32[S], 判决用; 比 --eval-logits 小 5 个数量级) |\n"
-        "  --eval-topk K FILE (每行 top-K 的 id/p + 目标 p + 覆盖质量, 后训练靶) |\n"
+        "  --eval-nll FILE (토큰별 NLL, f32[S], 평가용; --eval-logits보다 약 10만 배 작음) |\n"
+        "  --eval-topk K FILE (행별 top-K id/확률, 목표 확률과 커버리지, 후속 학습 대상) |\n"
         "  --eval-hdump DIR | --eval-no-bos | --amp-anchor FILE [--amp-anchor-route] |\n"
         "  --multi-bench N\n"
-        "      反修数据面 instruments: per-layer capture, teacher-forced scoring,\n"
+        "      양자화 보정 진단: 레이어별 수집, 정답 토큰 기반 점수 계산,\n"
         "      anchored replay, and the multi-session batching bench.\n"
     );
     ds4_dist_usage(fp);

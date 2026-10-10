@@ -288,7 +288,7 @@ cli_config parse_options(int argc, char **argv) {
              * 是模型元数据 deepseek4.context_length(装载时读进 g_ds4_v41.ctx), 状态按本趟位置分配, 没有别的档。
              * 拒而不是忽略 —— 忽略 = 用户以为设了其实没设, 本仓"不报错只出错"的坑踩够了。
              * V4 会话路的 ctx_size 留默认值, 只是没有入口再改它。 */
-            fprintf(stderr, "ds4: 上下文由模型元数据(deepseek4.context_length)决定, 没有 %s 这个参数\n", arg);
+            fprintf(stderr, "ds4: 컨텍스트 길이는 모델 메타데이터(deepseek4.context_length)로 결정되며 %s 옵션은 지원하지 않습니다\n", arg);
             exit(2);
         } else if (!strcmp(arg, "--temp")) {
             c.gen.temperature = parse_float_range(need_arg(&i, argc, argv, arg), arg, 0.0f, 100.0f);

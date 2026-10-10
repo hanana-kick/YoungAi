@@ -108,7 +108,7 @@ static void generate_jobs_batched(server *s, job **jobs, uint32_t n) {
         mon_prefill(s, jobs[i]->mon, jobs[i]->req.prompt.len, 0, jobs[i]->req.max_tokens);   /* 监控: 临时会话 sync = 整段预填 */
         if (ds4_session_create(&sess[i], s->engine, s->ctx_size) != 0 || !sess[i] ||
             ds4_session_sync(sess[i], &jobs[i]->req.prompt, err, sizeof err) != 0) {
-            server_log(DS4_LOG_WARNING, "ds4-server: 批处理会话 %u 建立失败: %s", i, err);
+            server_log(DS4_LOG_WARNING, "ds4-server: 배치 세션 %u 생성 실패: %s", i, err);
             done[i] = true; finish[i] = "error";
             continue;
         }
@@ -152,7 +152,7 @@ static void generate_jobs_batched(server *s, job **jobs, uint32_t n) {
                 done[idx[0]] = true; finish[idx[0]] = "error";
             }
         } else if (ds4_session_eval_multi(act, tok, na, err, sizeof err) != 0) {
-            server_log(DS4_LOG_WARNING, "ds4-server: 批解码失败: %s", err);
+            server_log(DS4_LOG_WARNING, "ds4-server: 배치 디코드 실패: %s", err);
             for (uint32_t k = 0; k < na; k++) { done[idx[k]] = true; finish[idx[k]] = "error"; }
         }
     }
@@ -160,7 +160,7 @@ static void generate_jobs_batched(server *s, job **jobs, uint32_t n) {
     int total = 0;
     for (uint32_t i = 0; i < n; i++) total += completion[i];
     server_log(DS4_LOG_GENERATION,
-               "ds4-server: 批处理 %u 路 gen=%d 用时 %.2fs ⇒ 聚合 %.2f t/s",
+               "ds4-server: 배치 %u개 요청, 생성=%d, 소요 %.2f초 ⇒ 합산 %.2f tok/s",
                n, total, now_sec() - t0, total / (now_sec() - t0));
 
     for (uint32_t i = 0; i < n; i++) {
