@@ -44,7 +44,7 @@ int ds4_gpu_register_q2k_f16_shadow(
         const void *model_map, uint64_t model_size,
         uint64_t offset, uint64_t rows, uint64_t cols) {
     (void)model_map; (void)model_size; (void)offset; (void)rows; (void)cols;
-    fprintf(stderr, "ds4: 全q2 f16 影子 Metal 未实现(全q2 模型请用 CUDA)\n");
+    fprintf(stderr, "ds4: 전체 Q2 f16 섀도 텐서는 Metal에서 미지원입니다(전체 Q2 모델은 CUDA 사용)\n");
     return 0;
 }
 
@@ -54,7 +54,7 @@ int ds4_gpu_matmul_q2_K_tensor(
         const ds4_gpu_tensor *x, uint64_t n_tok) {
     (void)out; (void)model_map; (void)model_size; (void)weight_offset;
     (void)in_dim; (void)out_dim; (void)x; (void)n_tok;
-    fprintf(stderr, "ds4: dense Q2_K matmul Metal 未实现(全q2 模型请用 CUDA)\n");
+    fprintf(stderr, "ds4: Dense Q2_K 행렬곱은 Metal에서 미지원입니다(전체 Q2 모델은 CUDA 사용)\n");
     return 0;
 }
 
@@ -67,7 +67,7 @@ int ds4_gpu_attention_output_q2k_batch_tensor(
     (void)out; (void)low; (void)model_map; (void)model_size; (void)out_a_offset;
     (void)out_b_offset; (void)group_dim; (void)rank; (void)n_groups; (void)out_dim;
     (void)heads; (void)n_tokens;
-    fprintf(stderr, "ds4: attn_output Q2_K Metal 未实现(全q2 模型请用 CUDA)\n");
+    fprintf(stderr, "ds4: attn_output Q2_K는 Metal에서 미지원입니다(전체 Q2 모델은 CUDA 사용)\n");
     return 0;
 }
 
@@ -77,7 +77,7 @@ int ds4_gpu_zchain_rte_set(const uint16_t *rm, const uint32_t *off, const uint32
     (void)rm; (void)off; (void)scale; (void)n_expert; (void)total_halves;
     /* 路由闭式侧车(type8) Metal kernel 未实现: 有侧车层 → 缴械并明示(禁静默跑错)。 */
     if (k) for (uint32_t l = 0; l < n_layer; l++) if (k[l]) {
-        fprintf(stderr, "ds4: zchain route 侧车(type8) Metal 未实现 — 路由侧车缴械(路由=裸量化)\n");
+        fprintf(stderr, "ds4: zchain 라우팅 사이드카(type8)는 Metal에서 미지원입니다. 라우팅 사이드카를 비활성화합니다(라우팅=기본 양자화)\n");
         return 1;
     }
     return 1;
@@ -97,8 +97,8 @@ int ds4_gpu_zchain_zl_set(const uint16_t *zlm, const uint32_t *off, const uint32
      * kernel_dsv4_zchain_scale 只有加性 z^L 那条路(参数结构里连 zl_mul 都没有)。
      * 有 mul 层 → 整族缴械并明示(宁可不放大, 禁按加性语义静默跑错)。 */
     if (mul) for (uint32_t l = 0; l < n_layer; l++) if (mul[l]) {
-        fprintf(stderr, "ds4: zchain 乘性侧车(type7 AMP / type9 AMPD) Metal 未实现 "
-                        "— z^L 侧车整族缴械(输出=裸量化)\n");
+        fprintf(stderr, "ds4: zchain 곱셈형 사이드카(type7 AMP / type9 AMPD)는 Metal에서 미지원입니다. "
+                        "따라서 z^L 사이드카 전체를 비활성화합니다(출력=기본 양자화)\n");
         return 1;
     }
     @autoreleasepool {
@@ -341,7 +341,7 @@ int ds4_gpu_zchain_hxp_set(const uint16_t *m, const uint32_t *off, const uint32_
     (void)m; (void)off; (void)hd;
     for (uint32_t l = 0; k && l < n_layer; l++)
         if (k[l]) {
-            fprintf(stderr, "ds4: zchain HXP(type10) Metal 未实现 -- aborting (no silent quality downgrade)\n");
+            fprintf(stderr, "ds4: zchain HXP(type10)는 Metal에서 미지원입니다. 품질 저하 방지를 위해 중단합니다\n");
             exit(1);
         }
     (void)total_halves;

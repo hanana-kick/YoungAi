@@ -15,7 +15,7 @@ static uint64_t v41_wbytes(uint32_t wtype, uint64_t rows, uint64_t cols) {
 }
 static int v41_wtype_ok(uint32_t wtype, uint64_t cols, const char *what) {
     const uint64_t need = wtype == V41_WT_Q4K ? 256u : (wtype == V41_WT_FP4X32 || wtype == V41_WT_FP8BLK ? 32u : 8u);
-    if (cols % need) { fprintf(stderr, "ds4: [v41-metal] %s: 列数 %llu 不是 %llu 的倍数\n", what, (unsigned long long)cols, (unsigned long long)need); return 0; }
+    if (cols % need) { fprintf(stderr, "ds4: [v41-metal] %s: 열 수 %llu가 %llu의 배수가 아닙니다\n", what, (unsigned long long)cols, (unsigned long long)need); return 0; }
     return 1;
 }
 

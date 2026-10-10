@@ -18,7 +18,7 @@ id<MTLBuffer> v41_grow(v41_scratch *s, uint64_t bytes, const char *what) {
     if (!g_initialized && !ds4_gpu_init()) return nil;
     /* 旧缓冲可能还被在飞的命令缓冲引用: Metal 按引用计数保活到命令完成, 这里直接放手即可 */
     id<MTLBuffer> nb = [g_device newBufferWithLength:(NSUInteger)(bytes ? bytes : 16) options:MTLResourceStorageModeShared];
-    if (!nb) { fprintf(stderr, "ds4: [v41-metal] %s 暂存分配失败 (%.1f MB)\n", what, (double)bytes / 1048576.0); return nil; }
+    if (!nb) { fprintf(stderr, "ds4: [v41-metal] %s 임시 버퍼 할당 실패(%.1f MB)\n", what, (double)bytes / 1048576.0); return nil; }
     s->buf = nb; s->cap = bytes; s->what = what;
     g_v41_gen++;
     uint32_t i = 0;
@@ -64,10 +64,10 @@ int v41_launch(const char *kernel, const v41_bind *binds, uint32_t nbind, MTLSiz
     if (tgs.width == 0 || tgs.height == 0 || tgs.depth == 0) return 1;   /* 空网格 = 没活, 成功 */
     @autoreleasepool {
         id<MTLComputePipelineState> pso = ds4_gpu_get_pipeline(kernel);
-        if (!pso) { fprintf(stderr, "ds4: [v41-metal] 核 %s 不在库里\n", kernel); return 0; }
+        if (!pso) { fprintf(stderr, "ds4: [v41-metal] 커널 %s를 라이브러리에서 찾을 수 없습니다\n", kernel); return 0; }
         const NSUInteger maxt = pso.maxTotalThreadsPerThreadgroup;
         if (tg.width * tg.height * tg.depth > maxt) {
-            fprintf(stderr, "ds4: [v41-metal] 核 %s 要 %lu 线程/threadgroup, 设备上限 %lu\n", kernel,
+            fprintf(stderr, "ds4: [v41-metal] 커널 %s에 필요한 threadgroup 스레드 %lu개가 GPU 한도 %lu를 초과했습니다\n", kernel,
                     (unsigned long)(tg.width * tg.height * tg.depth), (unsigned long)maxt);
             return 0;
         }
@@ -92,11 +92,11 @@ int v41_launch_1d(const char *kernel, const v41_bind *binds, uint32_t nbind, uin
 
 id<MTLBuffer> v41_model_buf(const void *model_map, uint64_t model_size, uint64_t offset, uint64_t len, uint64_t *inner_off, const char *what) {
     if (offset > model_size || len > model_size - offset) {
-        fprintf(stderr, "ds4: [v41-metal] %s: 权重范围 [%llu, +%llu) 超出映射 %llu\n", what, (unsigned long long)offset, (unsigned long long)len, (unsigned long long)model_size);
+        fprintf(stderr, "ds4: [v41-metal] %s: 가중치 범위 [%llu, +%llu)가 매핑 크기 %llu를 초과했습니다\n", what, (unsigned long long)offset, (unsigned long long)len, (unsigned long long)model_size);
         return nil;
     }
     id<MTLBuffer> b = ds4_gpu_wrap_model_range(model_map, model_size, offset, len, inner_off);
-    if (!b) fprintf(stderr, "ds4: [v41-metal] %s: 权重范围没有被映射视图覆盖\n", what);
+    if (!b) fprintf(stderr, "ds4: [v41-metal] %s: 가중치 범위가 매핑된 뷰에 포함되지 않습니다\n", what);
     return b;
 }
 

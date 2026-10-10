@@ -11,7 +11,7 @@ static uint32_t v41_wt_from_ggt(uint32_t wtype) {
         case DS4_GGT_BF16: return V41_WT_BF16;
         case DS4_GGT_FP4X32: return V41_WT_FP4X32;
         case DS4_GGT_FP8_32X32: return V41_WT_FP8BLK;
-        default: fprintf(stderr, "ds4: [bwd-metal] 转置乘不认权重类型 %u\n", wtype); return 0xFFFFFFFFu;
+        default: fprintf(stderr, "ds4: [역전파 Metal] 전치 행렬곱에서 가중치 타입 %u를 지원하지 않습니다\n", wtype); return 0xFFFFFFFFu;
     }
 }
 static uint64_t v41_wbytes_rc(uint32_t wt, uint64_t rows, uint64_t cols) {

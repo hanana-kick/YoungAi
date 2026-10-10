@@ -62,7 +62,7 @@ int ds4_gpu_v41_routed_moe_tensor(ds4_gpu_tensor *out, const void *model_map, ui
     if ((in_dim % 8u) || (mid_dim % 8u) || (out_dim % 8u)) return 0;
     const uint8_t *bh = (const uint8_t *)model_map + blob_offset;
     if (!ds4vq_blob_ok(bh, (size_t)blob_bytes)) {
-        fprintf(stderr, "ds4: [v41-metal] L%u 专家 blob 头不合法(魔数/版本/专家数); 本引擎认 DQVL v%u~v%u\n", layer, DS4VQ_BLOB_VER_MIN, DS4VQ_BLOB_VER_MAX);
+        fprintf(stderr, "ds4: [v41-metal] L%u 전문가 blob 헤더가 유효하지 않습니다(매직 값/버전/전문가 수). 지원 형식 DQVL v%u~v%u\n", layer, DS4VQ_BLOB_VER_MIN, DS4VQ_BLOB_VER_MAX);
         exit(1);
     }
     const uint32_t ver = ds4vq_blob_ver(bh);
@@ -110,7 +110,7 @@ int ds4_gpu_v41_moe_tail_tensor(ds4_gpu_tensor *y, const ds4_gpu_tensor *so, con
 int ds4_gpu_v41_vq_capture_expert_out(float *host, uint32_t n_tok, uint32_t n_used, uint32_t out_dim) {
     if (!host || n_tok != g_cap_tok || n_used != g_cap_used || out_dim != g_cap_out || !g_vq_ys.buf || !g_vq_inv.buf) return 0;
     const uint64_t npair = (uint64_t)n_tok * n_used, nel = npair * out_dim;
-    id<MTLBuffer> cap = v41_grow(&g_vq_cap, nel * 4, "vq 取料展开");
+    id<MTLBuffer> cap = v41_grow(&g_vq_cap, nel * 4, "VQ 데이터 전개");
     if (!cap) return 0;
     v41_vq_args a = { 0, 0, out_dim, n_used, 0, 0, n_tok, 0, 0.0f, 0, 0, 0 };
     v41_bind b[] = { V41_A(a), V41_B(cap, 0), V41_B(g_vq_ys.buf, 0), V41_B(g_vq_inv.buf, 0) };
@@ -142,7 +142,7 @@ static int v41_mtp_bind(uint32_t tower, const void *model_map, const uint64_t *o
             while (v < T->nview && T->views[v] != b) v++;
             if (v == T->nview) { if (T->nview >= 8u) { ok = 0; break; } T->views[T->nview++] = b; }
             if (vid == 0xFFFFFFFFu) vid = v;
-            else if (vid != v) { fprintf(stderr, "ds4: [v41-metal] 草稿塔 %u 专家 %u 的三块矩阵跨了映射视图\n", tower, e); ok = 0; break; }
+            else if (vid != v) { fprintf(stderr, "ds4: [v41-metal] 초안 타워 %u의 전문가 %u에 속한 3개 행렬이 매핑된 뷰의 범위를 벗어났습니다\n", tower, e); ok = 0; break; }
             ho[w * n_expert + e] = inner;
         }
         hv[e] = vid;

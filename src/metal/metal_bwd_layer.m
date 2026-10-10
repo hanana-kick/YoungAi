@@ -135,7 +135,7 @@ int ds4_gpu_bwd_routed_moe_tensor(ds4_gpu_tensor *gx, ds4_gpu_tensor *gw, const 
     if (!v41_launch("kernel_v41_bwd_scatter", bsc, 4, MTLSizeMake((IN + 255u) / 256u, n_tok, 1), MTLSizeMake(256, 1, 1))) return 0;
     if (!v41_host_sync()) return 0;
     const int bad_h = *(const int *)[bad contents];
-    if (bad_h) fprintf(stderr, "ds4: [bwd-metal] L%u 专家载荷头不认(v3 %u) —— 反向不出假梯度, 停车\n", layer, v3);
+    if (bad_h) fprintf(stderr, "ds4: [역전파 Metal] L%u 전문가 데이터 헤더(v3 %u)를 지원하지 않습니다. 잘못된 기울기 계산을 막기 위해 중단합니다\n", layer, v3);
     return !bad_h;
 }
 

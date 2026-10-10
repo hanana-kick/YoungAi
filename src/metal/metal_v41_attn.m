@@ -9,9 +9,9 @@ int ds4_gpu_v41_sparse_attn_tensor(ds4_gpu_tensor *o, const ds4_gpu_tensor *q, c
                                    uint32_t topk, uint32_t ratio, uint32_t n_head, uint32_t head_dim, float scale, int full_block, int ring, uint32_t win_lo,
                                    const ds4_gpu_tensor *posd, uint32_t pos_cap) {
     (void)ratio; (void)pos_cap;
-    if (!o || !q || !kv_win || head_dim != 512u || (n_head % 8u) || n_tok == 0) { fprintf(stderr, "ds4: [v41-metal] sparse attn 只实现 head_dim 512、头数 8 的倍数\n"); return 0; }
-    if (!full_block && !ring) { fprintf(stderr, "ds4: [v41-metal] sparse attn: 主路窗口必须是环(decode.md D1)\n"); return 0; }
-    if (ds4_gpu_tensor_bytes(kv_win) < (uint64_t)(window + n_tok) * head_dim * 4) { fprintf(stderr, "ds4: [v41-metal] 窗口缓冲不够 %u+%u 行\n", window, n_tok); return 0; }
+    if (!o || !q || !kv_win || head_dim != 512u || (n_head % 8u) || n_tok == 0) { fprintf(stderr, "ds4: [v41-metal] 희소 어텐션은 head_dim 512와 8의 배수인 헤드 수만 지원합니다\n"); return 0; }
+    if (!full_block && !ring) { fprintf(stderr, "ds4: [v41-metal] 희소 어텐션: 기본 경로의 윈도는 링 구조여야 합니다(decode.md D1)\n"); return 0; }
+    if (ds4_gpu_tensor_bytes(kv_win) < (uint64_t)(window + n_tok) * head_dim * 4) { fprintf(stderr, "ds4: [v41-metal] 윈도 버퍼 크기 부족(%u+%u행)\n", window, n_tok); return 0; }
     uint64_t so = 0;
     id<MTLBuffer> sb = v41_model_buf(model_map, model_size, sink_offset, (uint64_t)n_head * 4, &so, "v41 sink");
     if (!sb) return 0;
@@ -23,14 +23,14 @@ int ds4_gpu_v41_sparse_attn_tensor(ds4_gpu_tensor *o, const ds4_gpu_tensor *q, c
 }
 int ds4_gpu_v41_attn_scratch_prepare(uint32_t n_tok, uint32_t n_head, uint32_t head_dim) { (void)n_tok; (void)n_head; (void)head_dim; return 1; }   /* 标量核不用暂存 */
 int ds4_gpu_v41_indexer_scratch_prepare(uint32_t n_tok, uint32_t n_head) { (void)n_tok; (void)n_head; return 1; }
-void ds4_gpu_v41_set_indexer_mma(int on) { if (on) fprintf(stderr, "ds4: [v41-metal] --idx-mma 在 Metal 上没有张量核打分版, 走标量核\n"); }
+void ds4_gpu_v41_set_indexer_mma(int on) { if (on) fprintf(stderr, "ds4: [v41-metal] --idx-mma의 텐서 코어 점수 커널이 Metal에 없어 스칼라 커널을 사용합니다\n"); }
 
 static uint32_t v41_cand_ns(uint32_t ng, uint32_t bs, uint32_t cap) { const uint64_t full = (uint64_t)cap * bs; return full < ng ? (uint32_t)full : ng; }
 int ds4_gpu_v41_indexer_score_tensor(ds4_gpu_tensor *score, const ds4_gpu_tensor *q, const ds4_gpu_tensor *k, const ds4_gpu_tensor *weights, const ds4_gpu_tensor *cand_list,
                                      uint32_t cand_bs, uint32_t cand_cap, uint32_t n_tok, uint32_t pos0, uint32_t ng, uint32_t n_head, uint32_t dk, uint32_t ratio,
                                      const ds4_gpu_tensor *posd) {
     if (!score || !q || !k || !weights || (dk % 32u) || ratio == 0 || n_tok == 0) return 0;
-    if (dk / 32u > 4u) { fprintf(stderr, "ds4: [v41-metal] indexer 打分核只实现 dk ≤ 128\n"); return 0; }
+    if (dk / 32u > 4u) { fprintf(stderr, "ds4: [v41-metal] 인덱서 점수 커널은 dk ≤ 128만 지원합니다\n"); return 0; }
     if (posd && n_tok > 8u) return 0;
     if (ng == 0) return 1;
     if (cand_list && (cand_bs == 0u || cand_cap == 0u)) return 0;
@@ -43,7 +43,7 @@ int ds4_gpu_v41_indexer_score_tensor(ds4_gpu_tensor *score, const ds4_gpu_tensor
 }
 int ds4_gpu_v41_candidate_scratch_prepare(uint32_t n_tok, uint32_t nb) {
     if (n_tok == 0u || nb == 0u) return 1;
-    return v41_grow(&g_v41_cand_blk, (uint64_t)n_tok * nb * 5u, "v41 候选块") ? 1 : 0;
+    return v41_grow(&g_v41_cand_blk, (uint64_t)n_tok * nb * 5u, "v41 후보 블록") ? 1 : 0;
 }
 int ds4_gpu_v41_candidate_blocks_tensor(ds4_gpu_tensor *cand_list, const ds4_gpu_tensor *score, uint32_t n_tok, uint32_t pos0, uint32_t ng, uint32_t ratio,
                                         uint32_t topk_blocks, uint32_t block_size, const ds4_gpu_tensor *posd) {
@@ -51,7 +51,7 @@ int ds4_gpu_v41_candidate_blocks_tensor(ds4_gpu_tensor *cand_list, const ds4_gpu
     if (posd && n_tok > 8u) return 0;
     if (ng == 0) return 1;
     const uint32_t nb = (ng + block_size - 1u) / block_size;
-    id<MTLBuffer> blk = v41_grow(&g_v41_cand_blk, (uint64_t)n_tok * nb * 5u, "v41 候选块");
+    id<MTLBuffer> blk = v41_grow(&g_v41_cand_blk, (uint64_t)n_tok * nb * 5u, "v41 후보 블록");
     if (!blk) return 0;
     v41_cand_args a = { pos0, ng, ratio, topk_blocks, block_size, posd ? 1u : 0u, n_tok, nb };
     v41_bind b[] = { V41_A(a), V41_T(cand_list), V41_T(score), V41_T(posd), V41_B(blk, 0) };

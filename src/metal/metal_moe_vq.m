@@ -35,8 +35,8 @@ static void *ds4_vq_gather_worker(void *arg) {
              * 走到这里说明 blob 的 which=2 槽缺失但文件又没带 base down —— 产物与
              * 引擎不同代, 硬失败而不是读 offset 0 的垃圾当权重。 */
             if (t->down_expert_bytes == 0 || t->down_offset == 0) {
-                fprintf(stderr, "ds4: [vq-gather-err] e=%u 冷 w2 槽缺失且 base down 不在文件里"
-                                "(影子张量) -- aborting (no silent quality downgrade)\n", e);
+                fprintf(stderr, "ds4: [vq-gather 오류] e=%u 콜드 w2 슬롯이 누락됐고 base down 가중치가 파일에 없습니다"
+                                "(섀도 텐서). 품질 저하 방지를 위해 중단합니다\n", e);
                 *t->err = 1; return NULL;
             }
             const uint8_t *sd = (const uint8_t *)t->model_map + t->down_offset + (uint64_t)e * t->down_expert_bytes;
@@ -68,7 +68,7 @@ int ds4_gpu_vq_unified_gather(
     const uint64_t de = (uint64_t)out_dim * expert_mid_dim * 2u;
     const uint64_t need_g = (uint64_t)n_active * ge, need_d = (uint64_t)n_active * de;
     if (2 * need_g + need_d > DS4_METAL_VQ_SCRATCH_CAP_BYTES) {
-        fprintf(stderr, "ds4: VQ gather scratch %.2fGB > cap %.1fGB (降 prefill chunk)\n",
+        fprintf(stderr, "ds4: VQ gather 임시 버퍼 %.2fGB가 상한 %.1fGB를 초과했습니다(프리필 청크 크기를 줄이세요)\n",
                 (2.0 * need_g + need_d) / 1073741824.0,
                 (double)DS4_METAL_VQ_SCRATCH_CAP_BYTES / 1073741824.0);
         return 0;
