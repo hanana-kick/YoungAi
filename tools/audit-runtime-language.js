@@ -7,7 +7,7 @@ const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '..');
 const SERVING_ONLY = process.argv.includes('--serving-only');
-if (process.argv.some(a => !['--serving-only', '--all'].includes(a)))
+if (process.argv.slice(2).some(a => !['--serving-only', '--all'].includes(a)))
   throw new Error('Usage: node tools/audit-runtime-language.js [--serving-only|--all]');
 // Explicitly preserve user-visible Chinese vocabulary used as *model input*.
 // These are not log messages and must not be translated.
