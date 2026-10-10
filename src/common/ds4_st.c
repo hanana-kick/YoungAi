@@ -95,8 +95,8 @@ static void st_open(st_ctx *c, const char *hf) {
     c->nsh=0; pthread_mutex_init(&c->lock,NULL);
     /* weight_map 就地解析: "name": "shard" 逐对, 把引号改 NUL 让 key/val 直接指进 idx_json */
     char *w=strstr(c->idx_json,"\"weight_map\"");
-    if(!w){ fprintf(stderr,"st_read: index 无 weight_map\n"); exit(1); }
-    w=strchr(w,'{'); if(!w){ fprintf(stderr,"st_read: weight_map 格式异常\n"); exit(1); }
+    if(!w){ fprintf(stderr,"st_read: 인덱스에 weight_map이 없습니다\n"); exit(1); }
+    w=strchr(w,'{'); if(!w){ fprintf(stderr,"st_read: weight_map 형식이 잘못되었습니다\n"); exit(1); }
     long cap=4096; c->kv=malloc((size_t)cap*sizeof(st_kv)); c->nkv=0;
     char *q=w+1;
     while(*q){
@@ -175,16 +175,16 @@ float *st_read_weight(st_ctx *c, const char *name, long *R_out, long *C_out) {
             float *sc=malloc((size_t)sbr*sbc*sizeof(float));
             if(strcmp(dt2,"F8_E8M0")==0){
                 uint8_t *sb=malloc((size_t)sbr*sbc);
-                if(st_pread(fd2,sb,(size_t)sbr*sbc,ds2+soff[0])!=(ssize_t)((size_t)sbr*sbc)){fprintf(stderr,"st: scale 读不满 %s\n",sname);exit(1);}
+                if(st_pread(fd2,sb,(size_t)sbr*sbc,ds2+soff[0])!=(ssize_t)((size_t)sbr*sbc)){fprintf(stderr,"st: 스케일을 끝까지 읽지 못했습니다: %s\n",sname);exit(1);}
                 for(size_t i=0;i<(size_t)sbr*sbc;i++){
                     uint32_t u = sb[i]==0 ? 0x00400000u : ((uint32_t)sb[i]<<23);
                     memcpy(&sc[i],&u,4);
                 }
                 free(sb);
             } else if(strcmp(dt2,"F32")==0){
-                if(st_pread(fd2,sc,(size_t)sbr*sbc*4,ds2+soff[0])!=(ssize_t)((size_t)sbr*sbc*4)){fprintf(stderr,"st: scale 读不满 %s\n",sname);exit(1);}
+                if(st_pread(fd2,sc,(size_t)sbr*sbc*4,ds2+soff[0])!=(ssize_t)((size_t)sbr*sbc*4)){fprintf(stderr,"st: 스케일을 끝까지 읽지 못했습니다: %s\n",sname);exit(1);}
             } else {
-                fprintf(stderr,"st: 未知 scale dtype %s (%s) — 拒跑\n",dt2,sname); exit(1);
+                fprintf(stderr,"st: 알 수 없는 스케일 dtype %s(%s); 실행을 거부합니다\n",dt2,sname); exit(1);
             }
             for(long r=0;r<Rr;r++) for(long cc=0;cc<Cc;cc++)
                 w[(size_t)r*Cc+cc]*=sc[(size_t)(r/128)*sbc+(cc/128)];
@@ -198,7 +198,7 @@ float *st_read_weight(st_ctx *c, const char *name, long *R_out, long *C_out) {
         static float FP4T[16]; static int fp4t_init=0;
         if(!fp4t_init){ for(int i=0;i<16;i++) FP4T[i]=ds4_fp4_nibble_to_f32((uint8_t)i); fp4t_init=1; }
         long Cin=Cc*2, nblk=Cin/32;
-        if(Cin%32){ fprintf(stderr,"st: FP4 %s C=%ld 不整除32\n",name,Cin); exit(1); }
+        if(Cin%32){ fprintf(stderr,"st: FP4 %s의 C=%ld가 32로 나누어떨어지지 않습니다\n",name,Cin); exit(1); }
         char sname[512]; snprintf(sname,sizeof(sname),"%s",name);
         char *ww=strstr(sname,".weight"); if(ww) strcpy(ww,".scale");
         char shard2[256]; long ds2=0; char *hdr2=NULL; char dt2[16]; long ssh[2],soff[2];
@@ -207,13 +207,13 @@ float *st_read_weight(st_ctx *c, const char *name, long *R_out, long *C_out) {
            !(hdr2=SH2->hdr) || ((ds2=SH2->data_start),0) ||
            !st_find(hdr2,sname,dt2,ssh,soff) || strcmp(dt2,"F8_E8M0")!=0 ||
            ssh[0]!=Rr || ssh[1]!=nblk){
-            fprintf(stderr,"st: FP4 %s 缺配套 E8M0 scale [R,C/32] — 拒跑\n",name); exit(1);
+            fprintf(stderr,"st: FP4 %s에 대응하는 E8M0 스케일 [R,C/32]이 누락되어 실행을 거부합니다\n",name); exit(1);
         }
         w=realloc(w,(size_t)Rr*Cin*sizeof(float));   /* 真列数是 2×容器列 */
         uint8_t *buf=malloc((size_t)Rr*Cc);
-        if(st_pread(fdw,buf,(size_t)Rr*Cc,ds+off[0])!=(ssize_t)((size_t)Rr*Cc)){fprintf(stderr,"st: FP4 读不满 %s\n",name);exit(1);}
+        if(st_pread(fdw,buf,(size_t)Rr*Cc,ds+off[0])!=(ssize_t)((size_t)Rr*Cc)){fprintf(stderr,"st: FP4를 끝까지 읽지 못했습니다: %s\n",name);exit(1);}
         uint8_t *sb=malloc((size_t)Rr*nblk);
-        if(st_pread(SH2->fd,sb,(size_t)Rr*nblk,ds2+soff[0])!=(ssize_t)((size_t)Rr*nblk)){fprintf(stderr,"st: FP4 scale 读不满 %s\n",sname);exit(1);}
+        if(st_pread(SH2->fd,sb,(size_t)Rr*nblk,ds2+soff[0])!=(ssize_t)((size_t)Rr*nblk)){fprintf(stderr,"st: FP4 스케일을 끝까지 읽지 못했습니다: %s\n",sname);exit(1);}
         /* ★行并行 dequant(2026-08-23 v2: 嵌套函数 trampoline 在 noexecstack 下
          * pthread_create 静默失败→串行 fallback, 换文件级 worker)。行独立数值逐位不变。 */
         {
@@ -231,14 +231,14 @@ float *st_read_weight(st_ctx *c, const char *name, long *R_out, long *C_out) {
         Cc=Cin;   /* 下游按真实列数走 */
     } else if(strcmp(dt,"BF16")==0){
         uint16_t *buf=malloc((size_t)Rr*Cc*2);
-        if(st_pread(fdw,buf,(size_t)Rr*Cc*2,ds+off[0])!=(ssize_t)((size_t)Rr*Cc*2)){fprintf(stderr,"st: BF16 读不满 %s\n",name);exit(1);}
+        if(st_pread(fdw,buf,(size_t)Rr*Cc*2,ds+off[0])!=(ssize_t)((size_t)Rr*Cc*2)){fprintf(stderr,"st: BF16을 끝까지 읽지 못했습니다: %s\n",name);exit(1);}
         for(size_t i=0;i<(size_t)Rr*Cc;i++){ uint32_t u=(uint32_t)buf[i]<<16; memcpy(&w[i],&u,4);} free(buf);
     } else if(strcmp(dt,"I64")==0){ /* int64 → float (eid≤255精确) */
         int64_t *buf=malloc((size_t)Rr*Cc*8);
-        if(st_pread(fdw,buf,(size_t)Rr*Cc*8,ds+off[0])!=(ssize_t)((size_t)Rr*Cc*8)){fprintf(stderr,"st: I64 读不满 %s\n",name);exit(1);}
+        if(st_pread(fdw,buf,(size_t)Rr*Cc*8,ds+off[0])!=(ssize_t)((size_t)Rr*Cc*8)){fprintf(stderr,"st: I64를 끝까지 읽지 못했습니다: %s\n",name);exit(1);}
         for(size_t i=0;i<(size_t)Rr*Cc;i++) w[i]=(float)buf[i]; free(buf);
     } else { /* F32 */
-        if(st_pread(fdw,w,(size_t)Rr*Cc*4,ds+off[0])!=(ssize_t)((size_t)Rr*Cc*4)){fprintf(stderr,"st: F32 读不满 %s\n",name);exit(1);}
+        if(st_pread(fdw,w,(size_t)Rr*Cc*4,ds+off[0])!=(ssize_t)((size_t)Rr*Cc*4)){fprintf(stderr,"st: F32를 끝까지 읽지 못했습니다: %s\n",name);exit(1);}
     }
     if(R_out)*R_out=Rr; if(C_out)*C_out=Cc; return w;   /* fd/头由 st_ctx 缓存持有, 不在这里关 */
 }

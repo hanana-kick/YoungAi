@@ -255,8 +255,8 @@ int ds4_gpu_bwd_sparse_attn_tensor(ds4_gpu_tensor *gq, ds4_gpu_tensor *gkv, ds4_
                                    uint32_t n_tok, uint32_t window, uint32_t ng, uint32_t topk, uint32_t n_head, uint32_t head_dim, float scale) {
     (void)model_size;
     if (!gq || !gkv || !go || !o || !q || !kv_win || head_dim != 512u || n_tok == 0) return 0;
-    if (n_head % 32u) { fprintf(stderr, "ds4: [bwd] 注意力反向: 头数 %u 不是 32 的倍数(键梯度核一轮吃 64 个 e = 2·头)\n", n_head); return 0; }
-    if (window + topk > BWD_ATT_MAXK) { fprintf(stderr, "ds4: [bwd] 注意力反向: 窗口 %u + topk %u 超核内上限 %u\n", window, topk, BWD_ATT_MAXK); return 0; }
+    if (n_head % 32u) { fprintf(stderr, "ds4: [역전파] 어텐션 헤드 수 %u가 32의 배수가 아닙니다(키 기울기 커널은 라운드당 e 64개 = 헤드 2개씩 처리)\n", n_head); return 0; }
+    if (window + topk > BWD_ATT_MAXK) { fprintf(stderr, "ds4: [역전파] 어텐션 윈도 %u + top-k %u가 커널 한도 %u를 초과했습니다\n", window, topk, BWD_ATT_MAXK); return 0; }
     if ((kv_comp == NULL) != (idx == NULL)) return 0;
     if (!kv_comp) topk = 0;
     const uint32_t nkmax = window + topk;

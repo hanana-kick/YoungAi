@@ -34,7 +34,7 @@ static inline int ds4gw_begin(ds4gw *W, const char *path) {
     memset(W, 0, sizeof *W);
     snprintf(W->path, sizeof W->path, "%s", path);
     W->f = fopen(path, "wb");
-    if (!W->f) { fprintf(stderr, "★写不了 %s★\n", path); return -1; }
+    if (!W->f) { fprintf(stderr, "%s 파일에 쓸 수 없습니다\n", path); return -1; }
     W->align = 32;
     return 0;
 }
@@ -105,21 +105,21 @@ static inline int ds4gw_header(ds4gw *W) {
     for (uint64_t p = hl; p < W->data0; p++) if (fputc(0, f) == EOF) goto bad;
     return 0;
 bad:
-    fprintf(stderr, "★GGUF 头写失败 %s★\n", W->path); return -1;
+    fprintf(stderr, "GGUF 헤더 쓰기 실패: %s\n", W->path); return -1;
 }
 
 /* 必须按登记顺序写; 字节数与登记不符就硬停(偏一个字节整个文件全错位) */
 static inline int ds4gw_write(ds4gw *W, int ti, const void *data, uint64_t nbytes) {
-    if (ti != W->next) { fprintf(stderr, "★GGUF 写序错: 期望 #%d 来了 #%d(%s)★\n", W->next, ti, W->t[ti].name); return -1; }
-    if (nbytes != W->t[ti].nbytes) { fprintf(stderr, "★%s 字节数 %llu != 登记 %llu★\n", W->t[ti].name, (unsigned long long)nbytes, (unsigned long long)W->t[ti].nbytes); return -1; }
-    if (nbytes && fwrite(data, 1, nbytes, W->f) != nbytes) { fprintf(stderr, "★写失败 %s(盘满?)★\n", W->path); return -1; }
+    if (ti != W->next) { fprintf(stderr, "GGUF 쓰기 순서 오류: 예상 #%d, 실제 #%d(%s)\n", W->next, ti, W->t[ti].name); return -1; }
+    if (nbytes != W->t[ti].nbytes) { fprintf(stderr, "%s의 바이트 수 %llu가 등록값 %llu와 다릅니다\n", W->t[ti].name, (unsigned long long)nbytes, (unsigned long long)W->t[ti].nbytes); return -1; }
+    if (nbytes && fwrite(data, 1, nbytes, W->f) != nbytes) { fprintf(stderr, "쓰기 실패: %s(디스크 공간 부족 가능)\n", W->path); return -1; }
     for (uint64_t p = nbytes; p < ds4gw_pad(nbytes, W->align); p++) if (fputc(0, W->f) == EOF) return -1;
     W->next++;
     return 0;
 }
 
 static inline int ds4gw_end(ds4gw *W) {
-    if (W->next != W->nt) { fprintf(stderr, "★GGUF 未写全: %d/%d★\n", W->next, W->nt); return -1; }
+    if (W->next != W->nt) { fprintf(stderr, "GGUF 작성 미완료: %d/%d\n", W->next, W->nt); return -1; }
     int rc = (fflush(W->f) || fclose(W->f)) ? -1 : 0;
     W->f = NULL; free(W->kv); free(W->t); W->kv = NULL; W->t = NULL;
     return rc;

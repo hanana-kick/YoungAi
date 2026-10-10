@@ -42,7 +42,7 @@ static const __nv_bfloat16 *bwd_rows_bf16(__nv_bfloat16 *wb, const void *model_m
         if (!w) return NULL;
         return v41_fp8blk_to_bf16(wb, w + r0 * in_dim, w + in_dim * out_dim + (r0 / 32u) * sbc, in_dim, rows) ? wb : NULL;
     }
-    fprintf(stderr, "ds4: [bwd] 转置乘不认权重类型 %u\n", wtype);
+    fprintf(stderr, "ds4: [역전파] 전치 행렬곱에서 가중치 타입 %u를 지원하지 않습니다\n", wtype);
     return NULL;
 }
 
@@ -207,7 +207,7 @@ int ds4_gpu_bwd_kl_topk_tensor(ds4_gpu_tensor *glogits, ds4_gpu_tensor *loss, co
     if ((const char *)glogits->ptr != (const char *)logits->ptr + (uint64_t)row0 * n_vocab * 4 &&
         (const char *)glogits->ptr < (const char *)logits->ptr + logits->bytes &&
         (const char *)glogits->ptr + (uint64_t)m * n_vocab * 4 > (const char *)logits->ptr) {
-        fprintf(stderr, "ds4: [bwd] KL 梯度与 logits 部分重叠(只许整行同址)\n"); return 0;
+        fprintf(stderr, "ds4: [역전파] KL 기울기와 logits가 부분적으로 겹칩니다(행 전체의 동일 주소만 허용)\n"); return 0;
     }
     bwd_kl_topk_kernel<<<m, 1024, 0, g_cur_stream>>>((float *)glogits->ptr, (float *)loss->ptr, (const float *)logits->ptr, row0, n_vocab,
                                                      (const int32_t *)tid->ptr, (const float *)tp->ptr, (const float *)trest->ptr,

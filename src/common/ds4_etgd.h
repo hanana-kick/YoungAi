@@ -32,19 +32,19 @@ typedef struct {
 static int ds4_etgd_read(const char *path, ds4_etgd *o) {
     memset(o, 0, sizeof *o);
     FILE *f = fopen(path, "rb");
-    if (!f) { fprintf(stderr, "★top-K 表打不开: %s★\n", path); return -1; }
+    if (!f) { fprintf(stderr, "top-K 테이블을 열 수 없습니다: %s\n", path); return -1; }
     uint32_t hd[4];
     if (fread(hd, 4, 4, f) != 4 || hd[0] != DS4_ETGD_MAGIC) {
-        fprintf(stderr, "★%s 不是 --score-topk 产物★\n", path); fclose(f); return -1; }
+        fprintf(stderr, "%s는 --score-topk 출력물이 아닙니다\n", path); fclose(f); return -1; }
     o->K = (int)hd[1]; o->S = (int)hd[2]; o->vocab = (int)hd[3];
-    if (o->K <= 0 || o->K > 4096) { fprintf(stderr, "★%s K=%d 不合理★\n", path, o->K); fclose(f); return -1; }
+    if (o->K <= 0 || o->K > 4096) { fprintf(stderr, "%s의 K=%d 값이 유효하지 않습니다\n", path, o->K); fclose(f); return -1; }
     const size_t rec = 16u + (size_t)o->K * 8u;
     const long pos = ftell(f);
     fseek(f, 0, SEEK_END);
     const long sz = ftell(f) - pos;
     fseek(f, pos, SEEK_SET);
     if (sz <= 0 || (size_t)sz % rec) {
-        fprintf(stderr, "★%s 记录区 %ld 不是 %zu 的整数倍★\n", path, sz, rec); fclose(f); return -1; }
+        fprintf(stderr, "%s의 레코드 영역 %ld가 %zu의 배수가 아닙니다\n", path, sz, rec); fclose(f); return -1; }
     o->n = (int)((size_t)sz / rec);
     o->tgt = (int *)malloc((size_t)o->n * sizeof(int));
     o->tgt_p = (float *)malloc((size_t)o->n * sizeof(float));
@@ -52,17 +52,17 @@ static int ds4_etgd_read(const char *path, ds4_etgd *o) {
     o->ids = (int *)malloc((size_t)o->n * (size_t)o->K * sizeof(int));
     o->ps = (float *)malloc((size_t)o->n * (size_t)o->K * sizeof(float));
     if (!o->tgt || !o->tgt_p || !o->mass || !o->ids || !o->ps) {
-        fprintf(stderr, "★top-K 表内存不足★\n"); fclose(f); return -1; }
+        fprintf(stderr, "top-K 테이블 메모리가 부족합니다\n"); fclose(f); return -1; }
     for (int i = 0; i < o->n; i++) {
         uint32_t row = 0;
         if (fread(&row, 4, 1, f) != 1 || fread(&o->tgt[i], 4, 1, f) != 1 ||
             fread(&o->tgt_p[i], 4, 1, f) != 1 || fread(&o->mass[i], 4, 1, f) != 1 ||
             fread(o->ids + (size_t)i * o->K, 4, (size_t)o->K, f) != (size_t)o->K ||
             fread(o->ps + (size_t)i * o->K, 4, (size_t)o->K, f) != (size_t)o->K) {
-            fprintf(stderr, "★%s 在第 %d 行截断★\n", path, i); fclose(f); return -1; }
+            fprintf(stderr, "%s가 %d번째 행에서 잘렸습니다\n", path, i); fclose(f); return -1; }
         /* 行号自证: 记录里写的就是绝对行号, 与 ids 文件同一口径。对不上说明文件不是连续行
          * (比如钩子提前停车那趟的半成品), 那种错在下游只会表现为"判错了行"。 */
-        if ((int)row != i) { fprintf(stderr, "★%s 第 %d 条记的行号是 %u★\n", path, i, row); fclose(f); return -1; }
+        if ((int)row != i) { fprintf(stderr, "%s의 %d번째 레코드에 기록된 행 번호는 %u입니다\n", path, i, row); fclose(f); return -1; }
     }
     fclose(f);
     return 0;

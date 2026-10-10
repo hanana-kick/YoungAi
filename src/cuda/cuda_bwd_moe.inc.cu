@@ -140,7 +140,7 @@ int ds4_gpu_bwd_routed_moe_tensor(ds4_gpu_tensor *gx, ds4_gpu_tensor *gw, const 
     const uint32_t ver = ds4vq_blob_ver(bh);
     const uint8_t *blob = (const uint8_t *)cuda_model_range_cached_ptr(model_map, blob_offset, blob_bytes);
     if (!blob && (g_model_registered || g_model_device_owned)) blob = (const uint8_t *)cuda_model_range_ptr(model_map, blob_offset, blob_bytes, "bwd vq blob");
-    if (!blob) { fprintf(stderr, "ds4: [bwd] L%u 专家 blob 不在设备上(流式装载路的反向没接)\n", layer); return 0; }
+    if (!blob) { fprintf(stderr, "ds4: [역전파] L%u 전문가 blob이 GPU에 없습니다(스트리밍 로드 경로 역전파 미지원)\n", layer); return 0; }
     cudaStream_t cs = g_cur_stream ? g_cur_stream : cudaStreamPerThread;
     const uint64_t npair = (uint64_t)n_tok * K;
     int32_t *sel_h = (int32_t *)malloc(npair * 4), *list = (int32_t *)malloc(npair * 4);
@@ -165,7 +165,7 @@ int ds4_gpu_bwd_routed_moe_tensor(ds4_gpu_tensor *gx, ds4_gpu_tensor *gw, const 
     const int cap = ok && ver == 3u && g_vqm_cap.valid && g_vqm_cap.layer == layer && g_vqm_cap.nvalid == nv;
     if (ok && ver == 3u && !cap) {
         static int said = 0;
-        if (!said) { fprintf(stderr, "ds4: [bwd] L%u 没有本层重算的截留(截留 %d: 层 %u 配对 %u, 这里配对 %u), 反传里重算专家前向\n",
+        if (!said) { fprintf(stderr, "ds4: [역전파] L%u 레이어 재계산 캐시가 없습니다(캐시 %d: 레이어 %u 쌍 %u, 현재 쌍 %u). 역전파 중 전문가 순방향을 다시 계산합니다\n",
                              layer, g_vqm_cap.valid, g_vqm_cap.layer, g_vqm_cap.nvalid, nv); said = 1; }
     }
     int32_t *pair = ok ? (int32_t *)v41_grow(&g_bvq_pair, (uint64_t)(nv + 1u) * 4, "bwd vq pairs") : NULL;
@@ -207,7 +207,7 @@ int ds4_gpu_bwd_routed_moe_tensor(ds4_gpu_tensor *gx, ds4_gpu_tensor *gw, const 
         const uint32_t nc = ver == 3u ? g_vqp_hdr[layer][0].nc : 0u;
         uint32_t nbit = 0; while (nc && (1u << nbit) < nc) nbit++;
         if (ok && ver == 3u && !vqs_blob_fits(layer, blob, n_total_expert, IN, MID, OUT)) {   /* 转置核只有寄存器直解这一版: 要对齐的设备副本(训练本来就全驻留) */
-            fprintf(stderr, "ds4: [bwd] L%u 专家 blob 不是对齐的设备副本(封顶装载/映射), 转置张量核不认 —— 训练要全驻留\n", layer); ok = 0;
+            fprintf(stderr, "ds4: [역전파] L%u 전문가 blob이 정렬된 GPU 복사본이 아니어서(상한 로드/매핑) 전치 텐서 코어 커널을 사용할 수 없습니다. 학습에는 전체 상주가 필요합니다\n", layer); ok = 0;
         }
         if (ok && ver == 3u) ok = vqt_prepare(cnt, off, n_total_expert, vqst_item_tokens(nbit));
         if (ok) ok = ver == 3u ? vqt_launch(ga, og, blob, 2u, OUT, MID, nc, gr_all, OUT, 0, bad)
@@ -222,7 +222,7 @@ int ds4_gpu_bwd_routed_moe_tensor(ds4_gpu_tensor *gx, ds4_gpu_tensor *gw, const 
     }
     int bad_h = 0;
     if (ok && bad) ok = cudaMemcpy(&bad_h, bad, 4, cudaMemcpyDeviceToHost) == cudaSuccess && !bad_h;
-    if (bad_h) fprintf(stderr, "ds4: [bwd] L%u 专家载荷头不认(版本 %u) —— 反向不出假梯度, 停车\n", layer, ver);
+    if (bad_h) fprintf(stderr, "ds4: [역전파] L%u 전문가 데이터 헤더 버전 %u를 지원하지 않습니다. 잘못된 기울기 계산을 막기 위해 중단합니다\n", layer, ver);
     free(sel_h); free(list); free(cnt); free(off); free(meta);
     return ok;
 }

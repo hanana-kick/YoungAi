@@ -324,7 +324,7 @@ static int vqt_launch(float *out, const float *g, const uint8_t *blob, uint32_t 
     uint32_t nbit = 0; while ((1u << nbit) < nc) nbit++;
     const uint32_t ns = C / 64u; uint32_t sw = 16u; while (sw > 4u && ns % sw) sw--;   /* 一个单元几条: C/64 的不超过 16 的最大因子 */
     if ((nbit != 12u && nbit != 13u) || R % 64u || C % 64u || ns % sw || sw % 4u) {
-        fprintf(stderr, "ds4: [bwd] 转置张量核不认这个形状(码本 %u 词, %u×%u)\n", nc, R, C); return 0;
+        fprintf(stderr, "ds4: [역전파] 전치 텐서 코어 커널에서 지원하지 않는 형상입니다(코드북 %u항목, %u×%u)\n", nc, R, C); return 0;
     }
     if (!vqp_grow((void **)&g_vqt.g16, &g_vqt.g16_cap, (uint64_t)g_vqt.nv * R, sizeof(uint16_t), "vqt g16")) return 0;
     vqt_prescale_kernel<<<g_vqt.nitems, 256, 0, g_cur_stream>>>(g_vqt.g16, g, blob, g_vqt.d, g_vqt.doff, which, R, C, gr_all, OUTd, bad);
@@ -338,7 +338,7 @@ static int vqt_launch(float *out, const float *g, const uint8_t *blob, uint32_t 
                 cudaOccupancyMaxActiveBlocksPerMultiprocessor(occ, vqst_kernel<E, CBF, NTM>, (int)VQS_THREADS, shb) != cudaSuccess || *occ <= 0) { \
                 (void)cudaGetLastError(); *occ = -1; } \
         } \
-        if (*occ < 0) { fprintf(stderr, "ds4: [bwd] 转置张量核开不出 %u KB shared\n", shb >> 10); return 0; } \
+        if (*occ < 0) { fprintf(stderr, "ds4: [역전파] 전치 텐서 코어 커널에 공유 메모리 %u KB를 확보할 수 없습니다\n", shb >> 10); return 0; } \
         const uint32_t gsz = (uint32_t)g_vqt.nsm * (uint32_t)*occ; \
         vqst_kernel<E, CBF, NTM><<<gsz < nwork ? gsz : nwork, VQS_THREADS, shb, g_cur_stream>>>(out, g_vqt.g16, blob, g_vqt.d, g_vqt.nitems, g_vqt.doff, \
                                                                                            which, R, C, sw, accumulate, cbb, bad); \

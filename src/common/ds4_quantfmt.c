@@ -186,7 +186,7 @@ void ds4_deq_iq2_xxs(const uint8_t *src, uint64_t nblk, float *out) {
                 const uint32_t signs = par ? (s7 | 0x80u) : s7;       /* = ksigns_iq2xs[s7] */
                 for (int j = 0; j < 8; j++) {
                     const int code = (kg >> (2 * j)) & 3;
-                    assert(code != 3 && "iq2_xxs 打包网格不含码 3 — 表被改坏");
+                    assert(code != 3 && "iq2_xxs 패킹 격자에 코드 3이 없습니다. 테이블이 손상됐습니다");
                     const float gv = (float)ds4_iq2xxs_val[code];
                     *y++ = (signs & (1u << j)) ? -(db * gv) : (db * gv);
                 }

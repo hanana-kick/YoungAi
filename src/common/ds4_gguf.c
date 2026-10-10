@@ -50,11 +50,11 @@ static void gg_skipval(gg_cur *c, uint32_t t) {
 int ds4_gguf_open(ds4_gguf *g, const char *path, char *err, size_t errlen) {
     memset(g, 0, sizeof(*g));
     int fd = open(path, O_RDONLY);
-    if (fd < 0) { if (err && errlen) snprintf(err, errlen, "打不开: %s", path); return -1; }
+    if (fd < 0) { if (err && errlen) snprintf(err, errlen, "파일을 열 수 없습니다: %s", path); return -1; }
     struct stat st;
     if (fstat(fd, &st) || st.st_size <= 0) {
         close(fd);
-        if (err && errlen) snprintf(err, errlen, "空文件: %s", path);
+        if (err && errlen) snprintf(err, errlen, "빈 파일: %s", path);
         return -1;
     }
     g->msz = (size_t)st.st_size;
@@ -62,7 +62,7 @@ int ds4_gguf_open(ds4_gguf *g, const char *path, char *err, size_t errlen) {
     close(fd);
     if (g->map == MAP_FAILED) {
         g->map = NULL;
-        if (err && errlen) snprintf(err, errlen, "mmap 失败: %s", path);
+        if (err && errlen) snprintf(err, errlen, "mmap 실패: %s", path);
         return -1;
     }
 
@@ -70,27 +70,27 @@ int ds4_gguf_open(ds4_gguf *g, const char *path, char *err, size_t errlen) {
     uint32_t magic = gg_u32(&c), ver = gg_u32(&c);
     uint64_t n_t = gg_u64(&c), n_kv = gg_u64(&c);
     if (c.fail || !(magic == 0x46554747u && ver == 3))
-        GG_FAIL("非 GGUF v3(magic=%08x ver=%u)", magic, ver);
+        GG_FAIL("GGUF v3 파일이 아닙니다(magic=%08x ver=%u)", magic, ver);
     for (uint64_t i = 0; i < n_kv && !c.fail; i++) { gg_skipstr(&c); gg_skipval(&c, gg_u32(&c)); }
-    if (c.fail) GG_FAIL("GGUF KV 段截断/类型不认识");
+    if (c.fail) GG_FAIL("GGUF KV 영역이 잘렸거나 알 수 없는 타입입니다");
 
     g->nt = (int)n_t;
     g->t = (ds4_gguf_tensor *)calloc((size_t)(n_t ? n_t : 1), sizeof(ds4_gguf_tensor));
-    if (!g->t) GG_FAIL("calloc 张量目录失败");
+    if (!g->t) GG_FAIL("텐서 디렉터리 calloc 실패");
     for (uint64_t i = 0; i < n_t; i++) {
         ds4_gguf_tensor *t = &g->t[i];
         uint64_t nl = gg_u64(&c);
-        if (c.fail || (uint64_t)(c.end - c.p) < nl) GG_FAIL("GGUF 张量名截断");
+        if (c.fail || (uint64_t)(c.end - c.p) < nl) GG_FAIL("GGUF 텐서 이름이 잘렸습니다");
         t->name = (char *)malloc((size_t)nl + 1);
-        if (!t->name) GG_FAIL("malloc 张量名失败");
+        if (!t->name) GG_FAIL("텐서 이름 malloc 실패");
         memcpy(t->name, c.p, (size_t)nl); t->name[nl] = 0; c.p += nl;
         t->nd = gg_u32(&c);
-        if (c.fail || t->nd < 1 || t->nd > 4) GG_FAIL("GGUF 张量 %s 维数超范围", t->name);
+        if (c.fail || t->nd < 1 || t->nd > 4) GG_FAIL("GGUF 텐서 %s의 차원 수가 범위를 초과했습니다", t->name);
         t->ne[0] = t->ne[1] = t->ne[2] = t->ne[3] = 1;
         for (uint32_t d = 0; d < t->nd; d++) t->ne[d] = gg_u64(&c);
         t->type = gg_u32(&c);
         t->off = gg_u64(&c);
-        if (c.fail) GG_FAIL("GGUF 张量目录截断");
+        if (c.fail) GG_FAIL("GGUF 텐서 디렉터리가 잘렸습니다");
     }
     g->data0 = gg_align_up((uint64_t)(c.p - g->map));
     return 0;

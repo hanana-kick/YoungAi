@@ -93,11 +93,11 @@ static int v41_str_cmp(const void *a, const void *b) { return strcmp(*(char *con
 static int v41_st_scan_shard(v41_st *S, int si) {
     v41_st_shard *sh = &S->sh[si];
     FILE *f = fopen(sh->path, "rb");
-    if (!f) { fprintf(stderr, "★打不开 %s★\n", sh->path); return -1; }
+    if (!f) { fprintf(stderr, "%s 파일을 열 수 없습니다\n", sh->path); return -1; }
     uint64_t hlen = 0;
-    if (fread(&hlen, 8, 1, f) != 1 || hlen < 2 || hlen > (1u << 30)) { fclose(f); fprintf(stderr, "★%s 头长不合理★\n", sh->file); return -1; }
+    if (fread(&hlen, 8, 1, f) != 1 || hlen < 2 || hlen > (1u << 30)) { fclose(f); fprintf(stderr, "%s의 헤더 길이가 유효하지 않습니다\n", sh->file); return -1; }
     char *hdr = (char *)malloc(hlen + 1);
-    if (!hdr || fread(hdr, 1, hlen, f) != hlen) { fclose(f); free(hdr); fprintf(stderr, "★%s 头读不满★\n", sh->file); return -1; }
+    if (!hdr || fread(hdr, 1, hlen, f) != hlen) { fclose(f); free(hdr); fprintf(stderr, "%s의 헤더를 끝까지 읽지 못했습니다\n", sh->file); return -1; }
     hdr[hlen] = 0; fclose(f);
     sh->data0 = 8 + hlen;
     /* 顶层对象: 逐键扫描。值要么是张量对象 {..}, 要么是 __metadata__ 的 {..}(跳过)。 */
@@ -122,7 +122,7 @@ static int v41_st_scan_shard(v41_st *S, int si) {
         memset(E, 0, sizeof *E);
         E->name = (char *)malloc(klen + 1); memcpy(E->name, k0, klen); E->name[klen] = 0;
         E->shard = si;
-        if (v41_parse_ent(seg, end, E)) { fprintf(stderr, "★%s 里 %s 的头解析失败★\n", sh->file, E->name); free(hdr); return -1; }
+        if (v41_parse_ent(seg, end, E)) { fprintf(stderr, "%s에 포함된 %s의 헤더 파싱 실패\n", sh->file, E->name); free(hdr); return -1; }
         S->ne++;
     }
     free(hdr);
@@ -133,7 +133,7 @@ static int v41_st_scan_shard(v41_st *S, int si) {
 static int v41_st_open(v41_st *S, const char *dir) {
     memset(S, 0, sizeof *S);
     DIR *d = opendir(dir);
-    if (!d) { fprintf(stderr, "★目录打不开 %s★\n", dir); return -1; }
+    if (!d) { fprintf(stderr, "%s 디렉터리를 열 수 없습니다\n", dir); return -1; }
     char **names = NULL; int n = 0, cap = 0;
     struct dirent *de;
     while ((de = readdir(d))) {
@@ -143,7 +143,7 @@ static int v41_st_open(v41_st *S, const char *dir) {
         names[n++] = strdup(de->d_name);
     }
     closedir(d);
-    if (!n) { fprintf(stderr, "★%s 下没有 .safetensors★\n", dir); return -1; }
+    if (!n) { fprintf(stderr, "%s에 .safetensors 파일이 없습니다\n", dir); return -1; }
     qsort(names, n, sizeof(char *), v41_str_cmp);      /* 分片号有序, 日志可读 */
     S->sh = (v41_st_shard *)calloc(n, sizeof(v41_st_shard)); S->nsh = n;
     for (int i = 0; i < n; i++) {
@@ -156,7 +156,7 @@ static int v41_st_open(v41_st *S, const char *dir) {
     free(names);
     qsort(S->e, S->ne, sizeof(v41_st_ent), v41_ent_cmp);
     for (int i = 1; i < S->ne; i++)
-        if (!strcmp(S->e[i].name, S->e[i - 1].name)) { fprintf(stderr, "★张量名重复: %s★\n", S->e[i].name); return -1; }
+        if (!strcmp(S->e[i].name, S->e[i - 1].name)) { fprintf(stderr, "중복된 텐서 이름: %s\n", S->e[i].name); return -1; }
     return 0;
 }
 
@@ -170,14 +170,14 @@ static const uint8_t *v41_st_data(v41_st *S, const v41_st_ent *E) {
     v41_st_shard *sh = &S->sh[E->shard];
     if (!sh->map) {
         int fd = open(sh->path, O_RDONLY);
-        if (fd < 0) { fprintf(stderr, "★打不开 %s★\n", sh->path); return NULL; }
+        if (fd < 0) { fprintf(stderr, "%s 파일을 열 수 없습니다\n", sh->path); return NULL; }
         struct stat st; fstat(fd, &st);
         sh->msz = (size_t)st.st_size;
         sh->map = (uint8_t *)mmap(NULL, sh->msz, PROT_READ, MAP_PRIVATE, fd, 0);
         close(fd);
-        if (sh->map == MAP_FAILED) { sh->map = NULL; fprintf(stderr, "★mmap 失败 %s★\n", sh->path); return NULL; }
+        if (sh->map == MAP_FAILED) { sh->map = NULL; fprintf(stderr, "mmap 실패: %s\n", sh->path); return NULL; }
     }
-    if (sh->data0 + E->off + E->nbytes > sh->msz) { fprintf(stderr, "★%s 越界 %s★\n", E->name, sh->file); return NULL; }
+    if (sh->data0 + E->off + E->nbytes > sh->msz) { fprintf(stderr, "%s의 범위 초과: %s\n", E->name, sh->file); return NULL; }
     sh->touched = 1;
     return sh->map + sh->data0 + E->off;
 }
