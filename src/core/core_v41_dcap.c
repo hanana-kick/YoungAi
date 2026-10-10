@@ -74,16 +74,16 @@ static void v41_dcap_jury(const float *lm, const float *ld, uint32_t V, double T
 
 int ds4_engine_v41_dspark_capture(ds4_engine *e, const int *ids, int n_ids, const char *out_path, int n_prompt) {
     if (!e || !ids || n_ids < 3 || !ds4_engine_is_v41(e)) return 1;   /* 位置 0 只暖主模型, 至少要 1 对 */
-    if (!e->metal_ready) { fprintf(stderr, "ds4: V4.1 取料需要 GPU 后端\n"); return 1; }
+    if (!e->metal_ready) { fprintf(stderr, "ds4: V4.1 데이터 수집에는 GPU 백엔드가 필요합니다\n"); return 1; }
     const uint32_t D = DS4_N_EMBD;
     uint32_t ctx = (uint32_t)n_ids + 1;
-    if (ctx > g_ds4_v41.ctx) { fprintf(stderr, "ds4: 取料序列 %d 超过上下文 %u(模型元数据)\n", n_ids, g_ds4_v41.ctx); return 1; }
+    if (ctx > g_ds4_v41.ctx) { fprintf(stderr, "ds4: 데이터 수집 시퀀스 %d가 컨텍스트 한도 %u(모델 메타데이터)를 초과했습니다\n", n_ids, g_ds4_v41.ctx); return 1; }
     if (n_prompt < 1 || n_prompt > n_ids - 2) n_prompt = 1;   /* 0/越界 = 老口径: 位置 0 暖主模型, 从 1 起逐位 */
     ds4_v41_state st;
     const uint32_t cap = n_prompt > 1 ? (DS4_V41_CHUNK < (uint32_t)n_prompt ? DS4_V41_CHUNK : (uint32_t)n_prompt) : 1u;
     if (!v41_state_alloc(&st, cap, ctx, 0)) return 1;   /* cap=1: 一位一块, 见文件头; 提示段按块预填时 cap = 块; logits 按 cap 开(取料路不走末位捷径) */
     ds4_v41_draft dr;
-    if (!v41_draft_alloc(e, &dr)) { fprintf(stderr, "ds4: 这份 GGUF 没带 DSpark 三塔, 取不了料\n"); v41_state_free(&st); return 1; }
+    if (!v41_draft_alloc(e, &dr)) { fprintf(stderr, "ds4: 현재 GGUF에 DSpark 3개 타워가 없어 데이터를 수집할 수 없습니다\n"); v41_state_free(&st); return 1; }
     FILE *fo = fopen(out_path, "wb");
     ds4_gpu_tensor *am = ds4_gpu_tensor_alloc(16);
     float *xrow = xmalloc((size_t)D * 4), *yrow = xmalloc((size_t)D * 4);
@@ -100,7 +100,7 @@ int ds4_engine_v41_dspark_capture(ds4_engine *e, const int *ids, int n_ids, cons
     int rc = 1;
     uint32_t nw = 0, hit = 0;
     do {
-        if (!fo || !am || !ff) { fprintf(stderr, "ds4: 取料落盘/暂存分配失败\n"); break; }
+        if (!fo || !am || !ff) { fprintf(stderr, "ds4: 데이터 수집용 디스크/임시 버퍼 할당 실패\n"); break; }
         v41_dcap_hdr h = { { 'D','C','A','P' }, D, 0, (uint32_t)n_prompt };
         if (fwrite(&h, sizeof h, 1, fo) != 1) break;
         v41_dfix_hdr hf = { { 'D','F','I','X' }, NT, D, B, 0 };
@@ -148,21 +148,21 @@ int ds4_engine_v41_dspark_capture(ds4_engine *e, const int *ids, int n_ids, cons
             if (want == guess) hit++;
             nw++;
             if ((nw % 64u) == 0u)
-                fprintf(stderr, "[dcap] %u/%d 位置, 首位一致 %.3f\r", nw, n_ids - 1 - n_prompt, (double)hit / (double)nw);
+                fprintf(stderr, "[dcap] 위치 %u/%d, 첫 토큰 일치율 %.3f\r", nw, n_ids - 1 - n_prompt, (double)hit / (double)nw);
         }
-        if (!ok) { fprintf(stderr, "\nds4: 取料在第 %u 位失败\n", nw); break; }
+        if (!ok) { fprintf(stderr, "\nds4: 데이터 수집이 위치 %u에서 실패했습니다\n", nw); break; }
         if (fwrite(mtok, 4, nw, fo) != nw || fwrite(dtok, 4, nw, fo) != nw) break;
         h.n = nw;
         if (fseek(fo, 0, SEEK_SET) != 0 || fwrite(&h, sizeof h, 1, fo) != 1) break;
         hf.n = nw;
         if (fseek(ff, 0, SEEK_SET) != 0 || fwrite(&hf, sizeof hf, 1, ff) != 1) break;
-        fprintf(stderr, "\n[dcap] 落盘 %s: %u 位置 × 2 × %u f32(第 0 对 = 主模型位置 %u); 夹具料 %s(%u 对 × main_hidden %u×%u + %u 位草稿)\n",
+        fprintf(stderr, "\n[dcap] 저장 %s: 위치 %u개 × 2 × %u f32(첫 쌍=기본 모델 위치 %u); 테스트 데이터 %s(%u쌍 × main_hidden %u×%u + 초안 %u토큰)\n",
                 out_path, nw, D, (unsigned)n_prompt, pfix, nw, NT, D, B);
         /* ★这一行就是 M6 的判决基线★: 草稿器首位 ↔ 部署底座 argmax 的一致率。
          * 它与在线生成时 spec 账里的 p1 应当同量级 —— 差很多就说明取料与部署不同路, 先别解。 */
-        fprintf(stderr, "[dcap] ★草稿器首位 ↔ 底座 argmax 一致率 = %.4f (n=%u)★\n", (double)hit / (double)(nw ? nw : 1), nw);
+        fprintf(stderr, "[dcap] 초안 모델 첫 토큰 ↔ 기본 모델 argmax 일치율 = %.4f (n=%u)\n", (double)hit / (double)(nw ? nw : 1), nw);
         if (lm && nw)
-            fprintf(stderr, "[dcap] ★接受率陪审团 温 %.2f: 点质量草稿 E[p(argmax q)] = %.4f, 分布草稿 E[Σmin(p,q)] = %.4f (n=%u, 提示段 %d 个位置不计)★\n",
+            fprintf(stderr, "[dcap] 수락률 평가 온도 %.2f: 점확률 초안 E[p(argmax q)] = %.4f, 분포 초안 E[Σmin(p,q)] = %.4f (n=%u, 프롬프트 구간 %d개 위치 제외)\n",
                     T, sum_pm / (double)nw, sum_dist / (double)nw, nw, n_prompt);
         /* ★顺带把出口度量也取走(mtp-1.md M6′)★: 解算侧要按"头怎么看这个维度"加权, 而不是按隐态的
          * 欧氏距离 —— 09-16 那次判负(留出一致率不升反降)的真因就是这个度量选错了。
@@ -180,10 +180,10 @@ int ds4_engine_v41_dspark_capture(ds4_engine *e, const int *ids, int n_ids, cons
             if (okcn && ds4_gpu_synchronize() && ds4_gpu_tensor_read(cn, 0, hd, (uint64_t)D * 4)) {
                 FILE *f2 = fopen(p2, "wb");
                 if (f2) {
-                    if (fwrite(hd, 4, D, f2) == D) fprintf(stderr, "[dcap] 出口度量落盘 %s (%u 列平方和)\n", p2, D);
+                    if (fwrite(hd, 4, D, f2) == D) fprintf(stderr, "[dcap] 출력 계량값 저장 %s(열 제곱합 %u개)\n", p2, D);
                     fclose(f2);
                 }
-            } else fprintf(stderr, "ds4: ★出口度量没取到, 解算只能走纯 L2(那条 09-16 判过负)★\n");
+            } else fprintf(stderr, "ds4: 경고: 출력 계량값 수집 실패로 순수 L2 방식만 사용할 수 있습니다(기존 평가에서 성능 미달)\n");
             if (cn) ds4_gpu_tensor_free(cn);
             free(hd);
         }
@@ -200,6 +200,6 @@ int ds4_engine_v41_dspark_capture(ds4_engine *e, const int *ids, int n_ids, cons
 #else
 int ds4_engine_v41_dspark_capture(ds4_engine *e, const int *ids, int n_ids, const char *out_path, int n_prompt) {
     (void)e; (void)ids; (void)n_ids; (void)out_path; (void)n_prompt;
-    fprintf(stderr, "ds4: V4.1 只有 GPU 路\n"); return 1;
+    fprintf(stderr, "ds4: V4.1은 GPU 경로만 지원합니다\n"); return 1;
 }
 #endif

@@ -39,7 +39,7 @@ static bool v41_compress_source_graph(ds4_engine *e, ds4_v41_state *st, uint32_t
         if (!ds4_gpu_v41_matmul_bf16_tensor(st->csc, m->map, m->size, l->attn_compressor_gate->abs_offset, E, HD, st->xn, n)) return false;
         /* 快照只有验证批(n>1)要; 缓冲由直发那一轮 v41_compress_source 建(捕获态不许分配), 没建就是调用方没先直发暖过一轮 */
         ds4_gpu_tensor *sk = n > 1u ? st->snap_cpre_kv[il] : NULL, *ss = n > 1u ? st->snap_cpre_sc[il] : NULL;
-        if (n > 1u && (!sk || !ss)) { fprintf(stderr, "ds4: [graph] L%u 压缩器余行的快照缓冲还没建(验证批要先直发跑一轮)\n", il); return false; }
+        if (n > 1u && (!sk || !ss)) { fprintf(stderr, "ds4: [graph] L%u 압축기의 남은 행 스냅샷 버퍼가 아직 생성되지 않았습니다(검증 배치를 직접 실행으로 1회 처리해야 함)\n", il); return false; }
         if (!ds4_gpu_v41_compress_step_n_tensor(st->pooled, st->posg, st->cpre_kv[il], st->cpre_sc[il], sk, ss, st->ckv, st->csc, st->pos, ratio, HD, n)) return false;
         np = (ratio - 1u + n) / ratio;
     } else {
@@ -147,7 +147,7 @@ static bool v41_index_source(ds4_engine *e, ds4_v41_state *st, uint32_t il, uint
     const uint32_t dec_rows = DS4_MTP_MAX_BLOCK + 2u;
     uint32_t Rb = n <= dec_rows ? n : n / 32u;
     if (Rb < dec_rows) Rb = dec_rows < n ? dec_rows : n;
-    if (st->graph && Rb < n) { fprintf(stderr, "ds4: V4.1 graph 路的索引打分不分块(n %u)\n", n); return false; }
+    if (st->graph && Rb < n) { fprintf(stderr, "ds4: V4.1 그래프 경로의 인덱스 점수 계산은 블록 분할을 지원하지 않습니다(n %u)\n", n); return false; }
     if (!v41_index_scratch_prepare(st, ng, Rb, n)) return false;   /* 走图那条已在 capture 前按桶上限长够, 这里恒真 */
     if (!v41_tproj(m, st->iq, l->indexer_attn_q_b, DS4_N_LORA_Q, (uint64_t)IH * IK, st->qrn, n, 1)) return false;
     if (!v41_rope(st->iq, st->pos, n, IH, IK, ratio, false)) return false;
@@ -323,13 +323,13 @@ bool v41_attn_cache(ds4_engine *e, ds4_v41_state *st, uint32_t il) {
         if (v->is_kv_source[il] && !v41_compress_source(e, st, il, ratio)) return false;
         if (v->is_index_source[il] && !v41_index_source(e, st, il, ratio)) return false;
         const int16_t src = v->kv_source_of[il];
-        if (src < 0 || !st->comp_kv[src]) { fprintf(stderr, "ds4: V4.1 L%u 压缩层无源\n", il); return false; }
+        if (src < 0 || !st->comp_kv[src]) { fprintf(stderr, "ds4: V4.1 L%u 압축 레이어의 소스가 없습니다\n", il); return false; }
         ng = st->graph ? (st->graph_pos_cap + n) / ratio : st->ng_src[src];
         if (ng) {
-            if (st->idx_owner < 0) { fprintf(stderr, "ds4: V4.1 L%u 压缩层无 topk\n", il); return false; }
+            if (st->idx_owner < 0) { fprintf(stderr, "ds4: V4.1 L%u 압축 레이어에 top-k 정보가 없습니다\n", il); return false; }
             comp = st->comp_kv[src]; topk = st->idx_topk; iratio = st->idx_ratio;
             /* graph 路的核按一个 ratio 同时推 ng 与段长, 所以 topk 来源层的压缩比必须就是本层的(接线表保证; 不成立就停车) */
-            if (st->graph && iratio != ratio) { fprintf(stderr, "ds4: V4.1 L%u graph 路: topk 源层压缩比 %u ≠ 本层 %u\n", il, iratio, ratio); return false; }
+            if (st->graph && iratio != ratio) { fprintf(stderr, "ds4: V4.1 L%u 그래프 경로: top-k 소스 레이어의 압축비 %u ≠ 현재 레이어 %u\n", il, iratio, ratio); return false; }
         }
     }
     /* 稀疏注意力(窗口 128 + topk 压缩行, sink 进分母) → bf16 → 逆 rope */
@@ -342,7 +342,7 @@ bool v41_attn_cache(ds4_engine *e, ds4_v41_state *st, uint32_t il) {
     /* ★验证批进图(2026-09-22)★: "存 commit 将盖掉的那 n 格"这一发进图(位置从设备槽), 与直发路 v41_spec_snapshot 存的是同几格;
      * 快照缓冲由直发那一轮建(捕获态不许分配), 没建 = 调用方没先直发暖过这个 n。 */
     if (st->graph && n > 1u) {
-        if (!st->snap_win[il]) { fprintf(stderr, "ds4: [graph] L%u 窗口环的快照缓冲还没建(验证批要先直发跑一轮)\n", il); return false; }
+        if (!st->snap_win[il]) { fprintf(stderr, "ds4: [graph] L%u 윈도 링의 스냅샷 버퍼가 아직 생성되지 않았습니다(검증 배치를 직접 실행으로 1회 처리해야 함)\n", il); return false; }
         if (!ds4_gpu_v41_win_ring_snap_tensor(st->win[il], st->snap_win[il], 0u, 0u, n, SWA, HD, 0, posd)) return false;
     }
     return ds4_gpu_v41_win_commit_tensor(st->win[il], st->pos0, n, SWA, HD, posd) != 0;

@@ -44,14 +44,14 @@ static int v41_gr_accum_layer(const char *dir, uint32_t il, float *acc, size_t n
     int32_t hd[3];
     if (fread(hd, 4, 3, f) != 3 || hd[0] != (int32_t)DS4_N_EXPERT || hd[1] != (int32_t)DS4_N_EMBD ||
         (hd[2] != 1 && hd[2] != 2 && hd[2] != (int32_t)DS4_GGT_FP4X32)) {
-        fprintf(stderr, "ds4: 增益覆盖 %s 头不对(专家 %d 通道 %d 类型 %d; 要 %u/%u/1|2|43)\n",
+        fprintf(stderr, "ds4: 게인 보정 파일 %s의 헤더가 잘못되었습니다(전문가 %d, 채널 %d, 타입 %d; 필요 %u/%u/1|2|43)\n",
                 p, hd[0], hd[1], hd[2], (unsigned)DS4_N_EXPERT, (unsigned)DS4_N_EMBD);
         fclose(f); return -1;
     }
     bool ok;
     double bytes;
     if (hd[2] == (int32_t)DS4_GGT_FP4X32) {
-        if (nel % 32u) { fprintf(stderr, "ds4: %s 元素数 %zu 不是 32 的整数倍, fp4x32 装不下\n", p, nel); fclose(f); return -1; }
+        if (nel % 32u) { fprintf(stderr, "ds4: %s의 원소 수 %zu가 32의 배수가 아니어서 fp4x32로 저장할 수 없습니다\n", p, nel); fclose(f); return -1; }
         const size_t nb = nel / 32u, nby = nb * 17u;
         uint8_t *pk = xmalloc(nby);
         float *raw = xmalloc(nel * 4);
@@ -76,7 +76,7 @@ static int v41_gr_accum_layer(const char *dir, uint32_t il, float *acc, size_t n
         bytes = (double)nel * 4;
     }
     fclose(f);
-    if (!ok) { fprintf(stderr, "ds4: 增益覆盖 %s 截断\n", p); return -1; }
+    if (!ok) { fprintf(stderr, "ds4: 게인 보정 파일 %s가 잘렸습니다\n", p); return -1; }
     *mb += bytes / 1e6;
     return 1;
 }
@@ -90,20 +90,20 @@ static int v41_rb_load_layer(const char *dir, uint32_t il, double *mb) {
     if (!f) return 0;
     int32_t hd[2];
     if (fread(hd, 4, 2, f) != 2 || hd[0] != (int32_t)DS4_N_EXPERT || hd[1] != 1) {
-        fprintf(stderr, "ds4: 路由偏置 %s 头不对(专家 %d 类型 %d; 要 %u/1=f32)\n", p, hd[0], hd[1], (unsigned)DS4_N_EXPERT);
+        fprintf(stderr, "ds4: 라우터 바이어스 파일 %s의 헤더가 잘못되었습니다(전문가 %d, 타입 %d; 필요 %u/1=f32)\n", p, hd[0], hd[1], (unsigned)DS4_N_EXPERT);
         fclose(f); return -1;
     }
     float *buf = xmalloc((size_t)DS4_N_EXPERT * 4);
     const bool ok = fread(buf, 4, DS4_N_EXPERT, f) == DS4_N_EXPERT;
     fclose(f);
-    if (!ok) { fprintf(stderr, "ds4: 路由偏置 %s 截断\n", p); free(buf); return -1; }
+    if (!ok) { fprintf(stderr, "ds4: 라우터 바이어스 파일 %s가 잘렸습니다\n", p); free(buf); return -1; }
     const ds4_model *m = g_ds4_v41_model;
     char nm[64]; snprintf(nm, sizeof nm, "blk.%u.exp_probs_b.bias", il);
     const ds4_tensor *t = m ? model_find_tensor(m, nm) : NULL;
-    if (!t) { fprintf(stderr, "ds4: 路由偏置 L%02u: 模型里找不到 %s\n", il, nm); free(buf); return -1; }
+    if (!t) { fprintf(stderr, "ds4: 라우터 바이어스 L%02u: 모델에서 %s를 찾지 못했습니다\n", il, nm); free(buf); return -1; }
     const int r = ds4_gpu_v41_set_rb_override(m->map, m->size, t->abs_offset, buf, (uint32_t)DS4_N_EXPERT);
     free(buf);
-    if (!r) { fprintf(stderr, "ds4: 路由偏置 L%02u 挂不上\n", il); return -1; }
+    if (!r) { fprintf(stderr, "ds4: 라우터 바이어스 L%02u를 적용하지 못했습니다\n", il); return -1; }
     *mb += (double)DS4_N_EXPERT * 4 / 1e6;
     return 1;
 }
@@ -116,7 +116,7 @@ static int v41_rb_load(const char *dir) {
         if (r < 0) return -1;
         n += r;
     }
-    if (n) fprintf(stderr, "ds4: [反修·路由] %d 层挂上路由偏置侧车 (盘上 %.3f MB)\n", n, mb);
+    if (n) fprintf(stderr, "ds4: [양자화 보정·라우팅] %d개 레이어에 라우터 바이어스 사이드카 적용(디스크 %.3f MB)\n", n, mb);
     return n;
 }
 void v41_rb_clear_all(void) { (void)v41_rb_load(NULL); }
@@ -144,14 +144,14 @@ static int v41_gr_load(const char *amp_dir, const char *pt_dir) {
         }
         if (rc < 0 || !got) continue;
         if (!ds4_gpu_v41_set_gr_override(il, acc, (uint32_t)DS4_N_EXPERT, (uint32_t)DS4_N_EMBD)) {
-            fprintf(stderr, "ds4: L%02u 增益覆盖上传失败\n", il); rc = -1; break;
+            fprintf(stderr, "ds4: L%02u 게인 보정값 업로드 실패\n", il); rc = -1; break;
         }
         n++;
     }
     free(acc);
     if (rc < 0) return -1;
-    if (n) fprintf(stderr, "ds4: [反修·权重侧] %d 层挂上逐专家增益覆盖 (盘上 %.1f MB%s)\n",
-                   n, mb, (pt_dir && pt_dir[0]) ? ", 含后训练第三件" : "");
+    if (n) fprintf(stderr, "ds4: [양자화 보정·가중치] %d개 레이어에 전문가별 게인 보정 적용(디스크 %.1f MB%s)\n",
+                   n, mb, (pt_dir && pt_dir[0]) ? ", 후속 학습 파일 포함" : "");
     return n;
 }
 
@@ -164,24 +164,24 @@ static bool v41_pt_base_ok(const char *pt_dir, const char *amp_dir) {
     char p[4200]; snprintf(p, sizeof p, "%s/base.fnv", pt_dir);
     FILE *f = fopen(p, "rb");
     if (!f) {
-        fprintf(stderr, "ds4: ★后训练目录 %s 没有 base.fnv, 无法核对它是解在哪个反修态上的 —— 放行但读数自负★\n", pt_dir);
+        fprintf(stderr, "ds4: 경고: 후속 학습 디렉터리 %s에 base.fnv가 없어 양자화 보정 버전 일치를 확인할 수 없습니다. 실행은 허용하지만 결과 신뢰성을 보장하지 않습니다\n", pt_dir);
         return true;
     }
     unsigned long long want = 0; unsigned want_n = 0;
     const int got = fscanf(f, "%llx %u", &want, &want_n);
     fclose(f);
-    if (got != 2) { fprintf(stderr, "ds4: %s 读不出指纹 -- aborting\n", p); return false; }
+    if (got != 2) { fprintf(stderr, "ds4: %s에서 지문을 읽지 못해 중단합니다\n", p); return false; }
     uint32_t have_n = 0;
     unsigned hn = 0;
     const uint64_t have = (amp_dir && amp_dir[0]) ? ds4_gr_dir_fnv(amp_dir, DS4_N_LAYER, &hn) : DS4_GR_FNV_SEED;
     have_n = hn;
     if (have != (uint64_t)want || have_n != want_n) {
-        fprintf(stderr, "ds4: ★后训练件 %s 是解在另一个反修态上的(指纹 %016llx/%u 层, 现挂 %016llx/%u 层)★\n"
-                        "     ② 换版后 ③ 必须重解 —— 停车, 不出假读数\n",
+        fprintf(stderr, "ds4: 오류: 후속 학습 파일 %s가 다른 양자화 보정 버전에 맞춰 생성됐습니다(지문 %016llx/%u레이어, 현재 %016llx/%u레이어)\n"
+                        "     ② 버전이 변경되면 ③을 다시 계산해야 합니다. 잘못된 결과를 방지하기 위해 중단합니다\n",
                 pt_dir, want, want_n, (unsigned long long)have, have_n);
         return false;
     }
-    fprintf(stderr, "ds4: [后训练] 底座指纹核对通过(%016llx, %u 层)\n", (unsigned long long)have, have_n);
+    fprintf(stderr, "ds4: [후속 학습] 기본 모델 지문 검증 통과(%016llx, %u레이어)\n", (unsigned long long)have, have_n);
     return true;
 }
 
@@ -197,22 +197,22 @@ static int amp_read_layer(const char *dir, uint32_t il, float **A, float **B, fl
     if (!f) return 0;
     int32_t hd[3];
     if (fread(hd, 4, 3, f) != 3 || hd[0] != (int32_t)DS4_N_EMBD || hd[1] <= 0 || hd[1] > 8192) {
-        fprintf(stderr, "ds4: 放大器 %s 头不对(D %d K %d)\n", p, hd[0], hd[1]); fclose(f); return -1;
+        fprintf(stderr, "ds4: 증폭기 파일 %s의 헤더가 잘못되었습니다(D %d K %d)\n", p, hd[0], hd[1]); fclose(f); return -1;
     }
     const uint32_t D = (uint32_t)hd[0], K = (uint32_t)hd[1];
     const int32_t ty = hd[2];
     if (ty != 1 && ty != (int32_t)DS4_GGT_FP4X32) {
-        fprintf(stderr, "ds4: 放大器 %s 存储类型 %d 不认(1=f32 / 43=fp4x32)\n", p, ty); fclose(f); return -1;
+        fprintf(stderr, "ds4: 증폭기 파일 %s의 저장 타입 %d를 인식하지 못합니다(1=f32 / 43=fp4x32)\n", p, ty); fclose(f); return -1;
     }
     const size_t nel = (size_t)K * D;
     if (ty == (int32_t)DS4_GGT_FP4X32 && nel % 32u) {
-        fprintf(stderr, "ds4: 放大器 %s K×D=%zu 不是 32 的整数倍, fp4x32 装不下\n", p, nel); fclose(f); return -1;
+        fprintf(stderr, "ds4: 증폭기 파일 %s의 K×D=%zu가 32의 배수가 아니어서 fp4x32로 저장할 수 없습니다\n", p, nel); fclose(f); return -1;
     }
     float *a = xmalloc(nel * 4), *b = xmalloc(nel * 4);
     uint8_t *pk = ty == (int32_t)DS4_GGT_FP4X32 ? xmalloc(nel / 32u * 17u) : NULL;
     const bool ok = amp_read_mat(f, ty, nel, a, pk) && amp_read_mat(f, ty, nel, b, pk);
     free(pk); fclose(f);
-    if (!ok) { fprintf(stderr, "ds4: 放大器 %s 读失败(截断)\n", p); free(a); free(b); return -1; }
+    if (!ok) { fprintf(stderr, "ds4: 증폭기 파일 %s 읽기 실패(파일 잘림)\n", p); free(a); free(b); return -1; }
     if (scale != 1.0f) for (size_t t = 0; t < nel; t++) a[t] *= scale;
     *mb += ty == (int32_t)DS4_GGT_FP4X32 ? 2.0 * nel / 32.0 * 17.0 / 1e6 : 2.0 * nel * 4.0 / 1e6;
     *tyname = ty == (int32_t)DS4_GGT_FP4X32 ? "fp4x32" : "f32";
@@ -239,7 +239,7 @@ bool v41_amp_load(ds4_v41_state *st, const char *dir, const char *pt_dir) {
         if (k2 < 0 || k3 < 0) { free(A2); free(B2); return false; }
         const uint32_t K = (uint32_t)k2 + (uint32_t)k3, D = DS4_N_EMBD;
         if (!K) continue;
-        if (K > 8192u) { fprintf(stderr, "ds4: L%02u 放大器 ②(K %d)+③(K %d) 拼接超 8192\n", il, k2, k3); free(A2); free(B2); free(A3); free(B3); return false; }
+        if (K > 8192u) { fprintf(stderr, "ds4: L%02u 증폭기 ②(K %d)+③(K %d)의 결합 크기가 제한 8192를 초과했습니다\n", il, k2, k3); free(A2); free(B2); free(A3); free(B3); return false; }
         const uint64_t nel = (uint64_t)K * D, o3 = (uint64_t)k2 * D * 4u;
         bool ok = true;
         st->ampA[il] = ds4_gpu_tensor_alloc(nel * 4); st->ampB[il] = ds4_gpu_tensor_alloc(nel * 4);
@@ -248,7 +248,7 @@ bool v41_amp_load(ds4_v41_state *st, const char *dir, const char *pt_dir) {
         if (ok && k3 > 0 && (!ds4_gpu_tensor_write(st->ampA[il], o3, A3, (uint64_t)k3 * D * 4u) ||
                              !ds4_gpu_tensor_write(st->ampB[il], o3, B3, (uint64_t)k3 * D * 4u))) ok = false;
         free(A2); free(B2); free(A3); free(B3);
-        if (!ok) { fprintf(stderr, "ds4: L%02u 放大器上传失败\n", il); return false; }
+        if (!ok) { fprintf(stderr, "ds4: L%02u 증폭기 업로드 실패\n", il); return false; }
         st->ampK[il] = K;
         if (!n_arm || K < kmin) kmin = K;
         if (K > kmax) kmax = K;
@@ -257,14 +257,14 @@ bool v41_amp_load(ds4_v41_state *st, const char *dir, const char *pt_dir) {
     if (!n_arm) {
         /* 只有增益覆盖/路由偏置、没有低秩放大器也是合法的一种插件(权重侧反修与后训练的产物都长这样) */
         if (n_gr > 0 || n_rb > 0) return true;
-        fprintf(stderr, "ds4: 目录里既没有 amp_Lnn.bin 也没有 gr_Lnn.bin / rb_Lnn.bin(反修 %s / 后训练 %s)\n",
-                dir && dir[0] ? dir : "(无)", pt_dir && pt_dir[0] ? pt_dir : "(无)");
+        fprintf(stderr, "ds4: 디렉터리에 amp_Lnn.bin 또는 gr_Lnn.bin/rb_Lnn.bin이 없습니다(양자화 보정 %s / 후속 학습 %s)\n",
+                dir && dir[0] ? dir : "(없음)", pt_dir && pt_dir[0] ? pt_dir : "(없음)");
         return false;
     }
     st->ampT = ds4_gpu_tensor_alloc((uint64_t)st->cap_tok * kmax * 4);
     if (!st->ampT) return false;
-    fprintf(stderr, "ds4: [反修] 挂上 %u 层放大器 (K %u~%u, %s 盘上合计 %.1f MB, 步长 β=%.4g) ← ② %s%s%s\n",
-            n_arm, kmin, kmax, tyname, mb, (double)g_ds4_v41_amp_scale, dir && dir[0] ? dir : "(无)",
+    fprintf(stderr, "ds4: [양자화 보정] 증폭기 %u개 레이어 적용(K %u~%u, %s 총 디스크 %.1f MB, 계수 β=%.4g) ← ② %s%s%s\n",
+            n_arm, kmin, kmax, tyname, mb, (double)g_ds4_v41_amp_scale, dir && dir[0] ? dir : "(없음)",
             pt_dir && pt_dir[0] ? " + ③ " : "", pt_dir && pt_dir[0] ? pt_dir : "");
     return true;
 }
@@ -303,9 +303,9 @@ int v41_amp_hook(ds4_v41_state *st, uint32_t il) {
             alpha[i] = a;
         }
         rc = g_ds4_v41_hook(g_ds4_v41_hook_ud, (int)il, (int)st->pos0, (int)n, (int)D, (int)NU, DS4_SWIGLU_CLAMP_EXP, x, y, sel, rw, alpha, ye, ysh);
-        if (rc < 0) fprintf(stderr, "ds4: [反修钩子] L%02u 回调要求停车(rc %d)\n", il, rc);
+        if (rc < 0) fprintf(stderr, "ds4: [양자화 보정 콜백] L%02u가 중단을 요청했습니다(rc %d)\n", il, rc);
         else if (rc > 0) { st->stop_early = 1; rc = 1; }
-    } else fprintf(stderr, "ds4: [反修钩子] L%02u 取 x/y/路由/hc 系数 下主机失败\n", il);
+    } else fprintf(stderr, "ds4: [양자화 보정 콜백] L%02u의 x/y/라우팅/hc 계수 호스트 전송 실패\n", il);
     free(x); free(y); free(sel); free(rw); free(pre); free(post); free(alpha); free(ye); free(ysh);
     return rc;
 }

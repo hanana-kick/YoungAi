@@ -27,7 +27,7 @@ void ds4_engine_v41_set_score_split(int p) { g_v41_score_split = p > 0 ? (uint32
 #ifndef DS4_NO_GPU
 int ds4_engine_v41_score_ids(ds4_engine *e, const int *ids, int n_ids, const char *out_path, int no_engram, int chunk) {
     if (!e || !ids || n_ids < 1 || !ds4_engine_is_v41(e)) return 1;
-    if (!e->metal_ready) { fprintf(stderr, "ds4: V4.1 前向需要 GPU 后端\n"); return 1; }
+    if (!e->metal_ready) { fprintf(stderr, "ds4: V4.1 순방향 계산에는 GPU 백엔드가 필요합니다\n"); return 1; }
     const uint32_t n = (uint32_t)n_ids;
     const uint32_t ck = chunk > 0 ? (uint32_t)chunk : DS4_V41_CHUNK;
     const uint32_t cap = ck < n ? ck : n;
@@ -35,8 +35,8 @@ int ds4_engine_v41_score_ids(ds4_engine *e, const int *ids, int n_ids, const cha
     if (!v41_state_alloc(&st, cap, n, 0)) return 1;   /* 打分路: 每个位置都要 logits, 按 cap 开 */
     st.dump_prefix = (n <= 64u && cap == n) ? out_path : NULL;   /* 单块小样本自动落逐层 x/y, 对拍定位用 */
     st.no_engram = no_engram;
-    if (no_engram) fprintf(stderr, "[v41] ★no-engram★ 对拍口径, 跳过 engram 层\n");
-    if (ck < n) fprintf(stderr, "[v41] 分块 %u(%u 块)\n", ck, (n + ck - 1) / ck);
+    if (no_engram) fprintf(stderr, "[v41] no-engram 비교 모드: Engram 레이어를 건너뜁니다\n");
+    if (ck < n) fprintf(stderr, "[v41] 블록 분할 %u(%u블록)\n", ck, (n + ck - 1) / ck);
     ds4_score_aux *aux = ds4_score_aux_open(g_v41_score_nll, g_v41_score_topk_path,
                                             g_v41_score_topk, g_v41_score_rms, n, DS4_N_VOCAB, "v41");
     const int aux_nll = aux && g_v41_score_nll;   /* 只开了 rms 时 aux 非空但没算 NLL, 冒烟 PPL 仍要自己算 */
@@ -44,11 +44,11 @@ int ds4_engine_v41_score_ids(ds4_engine *e, const int *ids, int n_ids, const cha
     FILE *fo = NULL;
     if (!g_v41_score_skip_logits) {
         fo = fopen(out_path, "wb");
-        if (!fo) { fprintf(stderr, "ds4: 写不了 %s\n", out_path); ds4_score_aux_close(aux); v41_state_free(&st); return 1; }
+        if (!fo) { fprintf(stderr, "ds4: %s에 쓸 수 없습니다\n", out_path); ds4_score_aux_close(aux); v41_state_free(&st); return 1; }
         int hd[2] = { (int)n, (int)DS4_N_VOCAB };
         fwrite(hd, 4, 2, fo);
     } else if (!aux) {
-        fprintf(stderr, "ds4: --score-no-logits 却没给 --score-nll/--score-topk, 这趟什么都不会产 -- aborting\n");
+        fprintf(stderr, "ds4: --score-no-logits가 설정됐지만 --score-nll/--score-topk가 없어 출력이 생성되지 않습니다. 중단합니다\n");
         v41_state_free(&st); return 1;
     }
     float *lg = xmalloc((size_t)cap * DS4_N_VOCAB * 4);
@@ -58,8 +58,8 @@ int ds4_engine_v41_score_ids(ds4_engine *e, const int *ids, int n_ids, const cha
     double nll = 0.0; const double t0 = now_sec();
     bool ok = true; int stopped = 0;
     const uint32_t split = g_v41_score_split < n ? g_v41_score_split : 0u;
-    if (split && fo) { fprintf(stderr, "ds4: 部署同路切分(P=%u)下 CED 块没有 logits, 全词表文件写不完整 —— 要配 --score-no-logits\n", split); ok = false; }
-    if (split) fprintf(stderr, "[v41] ★部署同路★ [0,%u) 照生成路预填(CED), [%u,%u) 跑满解码器\n", split, split, n);
+    if (split && fo) { fprintf(stderr, "ds4: 배포 경로와 동일한 분할(P=%u)에서는 CED 블록에 logits가 없어 전체 어휘 파일을 완성할 수 없습니다. --score-no-logits를 사용하세요\n", split); ok = false; }
+    if (split) fprintf(stderr, "[v41] 배포 경로 모드: [0,%u)는 생성 경로대로 프리필(CED), [%u,%u)는 전체 디코더 실행\n", split, split, n);
     for (uint32_t c0 = 0, nc = 0; ok && c0 < n; c0 += nc) {
         nc = n - c0 < cap ? n - c0 : cap;
         st.ced_skip = 0;
@@ -100,17 +100,17 @@ int ds4_engine_v41_score_ids(ds4_engine *e, const int *ids, int n_ids, const cha
     ds4_score_aux_close(aux);   /* 平均 NLL/PPL 与 topK 覆盖率由它打印 */
     if (ok && stopped) {
         if (fo) unlink(out_path);
-        fprintf(stderr, "[v41] 钩子取料提前结束, 不出 logits(已删 %s)  %.1fs\n", out_path, now_sec() - t0);
-    } else if (ok && !aux_nll) fprintf(stderr, "[v41] 完成 S=%u V=%u → %s  ★PPL(本段 %u token) = %.4f★  %.1fs\n", n, DS4_N_VOCAB, out_path, n,
+        fprintf(stderr, "[v41] 콜백 데이터 수집이 조기 종료되어 logits를 출력하지 않습니다(%s 삭제됨). %.1f초\n", out_path, now_sec() - t0);
+    } else if (ok && !aux_nll) fprintf(stderr, "[v41] 완료 S=%u V=%u → %s  PPL(현재 구간 %u토큰) = %.4f  %.1f초\n", n, DS4_N_VOCAB, out_path, n,
                     n > 1 ? exp(nll / (double)(n - 1)) : 0.0, now_sec() - t0);
-    else if (ok) fprintf(stderr, "[v41] 完成 S=%u V=%u%s  %.1fs\n", n, DS4_N_VOCAB,
-                         fo ? " (logits 已写)" : " (只出小文件)", now_sec() - t0);
+    else if (ok) fprintf(stderr, "[v41] 완료 S=%u V=%u%s  %.1f초\n", n, DS4_N_VOCAB,
+                         fo ? " (logits 저장 완료)" : " (소형 파일만 출력)", now_sec() - t0);
     v41_state_free(&st);
     return ok ? 0 : 1;
 }
 #else
 int ds4_engine_v41_score_ids(ds4_engine *e, const int *ids, int n_ids, const char *out_path, int no_engram, int chunk) {
     (void)e; (void)ids; (void)n_ids; (void)out_path; (void)no_engram; (void)chunk;
-    fprintf(stderr, "ds4: V4.1 只有 GPU 路\n"); return 1;
+    fprintf(stderr, "ds4: V4.1은 GPU 경로만 지원합니다\n"); return 1;
 }
 #endif

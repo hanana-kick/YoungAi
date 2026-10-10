@@ -34,7 +34,7 @@ void v41_mgraph_free(ds4_v41_batch *b) {
     for (int i = 0; i < MG_SLOTS; i++) if (g->g[i].exec) ds4_gpu_decode_graph_free(g->g[i].exec);
     for (uint32_t i = 0; i < DS4_V41_GEMV_MAX_TOK; i++) if (g->amv[i]) ds4_gpu_tensor_free(g->amv[i]);
     ds4_gpu_host_free(g->tokv); ds4_gpu_host_free(g->posv); ds4_gpu_host_free(g->onehot); ds4_gpu_host_free(g->next);
-    if (g->launches) fprintf(stderr, "ds4: [mgraph] 合批走图 %u 步, 捕获 %u 次, 键不中 %u 次\n", g->launches, g->captures, g->misses);
+    if (g->launches) fprintf(stderr, "ds4: [mgraph] 배치 그래프 실행 %u단계, 캡처 %u회, 캐시 키 미일치 %u회\n", g->launches, g->captures, g->misses);
     free(g); b->mg = NULL;
 }
 
@@ -145,7 +145,7 @@ static mg_inst *mg_capture(ds4_engine *e, ds4_v41_batch *b, ds4_v41_state **m, c
     in->exec = exec; in->nm = nm; in->R = R; in->gen = ds4_gpu_v41_scratch_generation();
     for (uint32_t i = 0; i < nm; i++) { in->mem[i] = m[i]; in->uid[i] = m[i]->uid; in->nr[i] = nr[i]; in->idx_gen[i] = m[i]->iscap_gen; in->dev_sample[i] = m[i]->dev_sample; in->spec_q[i] = m[i]->spec_q; }
     g->captures++;
-    fprintf(stderr, "ds4: [mgraph] %u 路 %u 行的图: 槽 %d, 位置桶", nm, R, slot);
+    fprintf(stderr, "ds4: [mgraph] 요청 %u개, %u행 그래프: 슬롯 %d, 위치 버킷", nm, R, slot);
     for (uint32_t i = 0; i < nm; i++) fprintf(stderr, " [%u,%u]", in->lo[i], in->cap[i]);
     fputc('\n', stderr);
     return in;
@@ -161,7 +161,7 @@ bool v41_multi_graph_round(ds4_engine *e, ds4_v41_batch *b, ds4_v41_state **m, c
     mg_inst *in = mg_find(g, m, nr, nm);
     if (!in) {
         g->misses++;
-        if (!(in = mg_capture(e, b, m, r0, nr, nm, R))) { fprintf(stderr, "ds4: ★[mgraph] 捕获失败, 这一轮走直发★\n"); return false; }
+        if (!(in = mg_capture(e, b, m, r0, nr, nm, R))) { fprintf(stderr, "ds4: 경고: [mgraph] 그래프 캡처 실패, 이번 라운드는 직접 실행합니다\n"); return false; }
     }
     in->used = ++g->tick;
     /* 起手(与 v41_multi_step / dg_begin_step 同一套): 各路的 n/pos0/计数、hist 先落(engram 哈希要回看它), 槽先落内存再发图 */
@@ -191,7 +191,7 @@ bool v41_multi_graph_round(ds4_engine *e, ds4_v41_batch *b, ds4_v41_state **m, c
     if (!ds4_gpu_synchronize()) return false;
     __sync_synchronize();
     for (uint32_t i = 0; i < nm; i++) if (!m[i]->no_engram && v41_engram_graph_err(m[i])) eg_ok = false;
-    if (!eg_ok) { fprintf(stderr, "ds4: [mgraph] engram 取行失败\n"); return false; }
+    if (!eg_ok) { fprintf(stderr, "ds4: [mgraph] Engram 행 읽기 실패\n"); return false; }
     for (uint32_t i = 0; i < nm; i++) {
         v41_sample_pick(g->next + 4u * r0[i], tok + r0[i], nr[i], m[i]->dev_sample, want + r0[i]);
         /* 位置按闭式推进(图里的核按设备位置写缓存, 主机只记同一个数; 与 core_decode_graph.c dg_advance 同式) */

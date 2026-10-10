@@ -41,7 +41,7 @@ static bool v41_engram_open_shard(ds4_v41_state *st, uint32_t ei) {
 #endif
     if (fd < 0) { dio = 0; fd = open(path, O_RDONLY); }
     if (fd < 0) {   /* 最常见的原因: GGUF 里记的是转换那台机器的绝对路径, 换了机器就不在 */
-        fprintf(stderr, "ds4: engram 表打不开 %s —— 用 --engram-dir 指向放官方分片(model-0004{7,8}-of-00048.safetensors)的目录\n", path);
+        fprintf(stderr, "ds4: Engram 테이블 %s를 열 수 없습니다. --engram-dir로 공식 샤드(model-0004{7,8}-of-00048.safetensors)가 있는 디렉터리를 지정하세요\n", path);
         return false;
     }
     struct stat sb; if (fstat(fd, &sb) != 0) { close(fd); return false; }
@@ -53,7 +53,7 @@ static bool v41_engram_open_shard(ds4_v41_state *st, uint32_t ei) {
 #ifdef POSIX_FADV_RANDOM
         (void)posix_fadvise(fd, 0, 0, POSIX_FADV_RANDOM);
 #endif
-        fprintf(stderr, "ds4: ★engram 表拿不到 O_DIRECT, 退普通读 —— 页缓存会被搅动, 输出可能不可复现★\n");
+        fprintf(stderr, "ds4: 경고: Engram 테이블에 O_DIRECT를 사용할 수 없어 일반 읽기로 전환합니다. 페이지 캐시 간섭으로 출력 재현성이 떨어질 수 있습니다\n");
     }
     st->eshard[ei].dio = dio;
     st->eshard[ei].fd = fd; st->eshard[ei].size = (uint64_t)sb.st_size;
@@ -208,7 +208,7 @@ static v41_ejob *v41_ejob_create(ds4_v41_state *st) {
     const ds4_v41_cfg *v = &g_ds4_v41;
     v41_ejob *J = xmalloc(sizeof *J); memset(J, 0, sizeof *J);
     if (!v41_epool_threads() && posix_memalign((void **)&J->fallback_bounce, V41_EDIO_ALIGN, 2u * V41_EDIO_ALIGN) != 0) {
-        fprintf(stderr, "ds4: engram O_DIRECT 落脚点分配失败\n"); free(J); return NULL;
+        fprintf(stderr, "ds4: Engram O_DIRECT 버퍼 할당 실패\n"); free(J); return NULL;
     }
     J->n_eng = v->n_engram; J->cap = st->cap_tok; J->cols = (v->engram_max_ngram - 1) * v->engram_heads;
     J->HD = v->engram_head_dim; J->nsc = J->HD / 32u;
@@ -217,20 +217,20 @@ static v41_ejob *v41_ejob_create(ds4_v41_state *st) {
     for (uint32_t ei = 0; ei < J->n_eng; ei++) {
         if (!v41_engram_open_shard(st, ei)) return NULL;
         if (v->engram_weight_off[ei] + v->engram_rows[ei] * J->HD > st->eshard[ei].size ||
-            v->engram_scale_off[ei] + v->engram_rows[ei] * J->nsc > st->eshard[ei].size) { fprintf(stderr, "ds4: engram 表偏移越界\n"); return NULL; }
+            v->engram_scale_off[ei] + v->engram_rows[ei] * J->nsc > st->eshard[ei].size) { fprintf(stderr, "ds4: Engram 테이블 오프셋 범위 초과\n"); return NULL; }
         J->raw[ei] = ds4_gpu_host_alloc((uint64_t)J->cap * J->cols * (J->HD + J->nsc));
         J->rows[ei] = xmalloc((size_t)J->cap * J->cols * sizeof(int64_t));
-        if (!J->raw[ei]) { fprintf(stderr, "ds4: engram 行缓冲(pinned)分配失败\n"); return NULL; }
+        if (!J->raw[ei]) { fprintf(stderr, "ds4: Engram 행 버퍼(pinned) 할당 실패\n"); return NULL; }
     }
     J->flags = ds4_gpu_host_alloc((uint64_t)(DS4_V41_MAX_ENGRAM + 2) * sizeof(int32_t));
-    if (!J->flags) { fprintf(stderr, "ds4: engram 标志槽(pinned)分配失败\n"); return NULL; }
+    if (!J->flags) { fprintf(stderr, "ds4: Engram 상태 슬롯(pinned) 할당 실패\n"); return NULL; }
     memset(J->flags, 0, (DS4_V41_MAX_ENGRAM + 2) * sizeof(int32_t));
     /* io_uring 队列深度 = 一次能在飞的读数(落脚点 8 KB 一个)。09-18 定 512(解码一轮 48 次一批就走)。
      * ★判负存档(2026-09-29)★: 抬到 4096 想让盘吃满队列 —— 块 2048 一轮 98304 次读, L0 那 ~150 ms 算不完, 第一个 engram 层前每块空转 60~70 ms;
      * 4096 深时空转一样(6 块 349 ms 对 286 ms), 瓶颈不在队列深度而在单线程收发 + 盘的 IOPS ⇒ 解法是提前一块发(见 v41_engram_prefetch_next)。 */
     J->ring = v41_ering_open(512u);
     if (J->ring) J->reqs = xmalloc((size_t)J->cap * J->cols * 2u * sizeof(v41_ering_req));
-    fprintf(stderr, "ds4: [engram] 取行走 %s\n", J->ring ? "io_uring(主线程一次提交整轮)" : "线程池(io_uring 不可用)");
+    fprintf(stderr, "ds4: [Engram] 행 읽기 방식: %s\n", J->ring ? "io_uring(메인 스레드에서 라운드별 일괄 제출)" : "스레드 풀(io_uring 사용 불가)");
     return J;
 }
 
@@ -318,7 +318,7 @@ bool v41_engram_prefetch(ds4_engine *e, ds4_v41_state *st) {
             if (J->started[ei] && !J->joined[ei]) { if (J->ring) (void)v41_ering_wait(J->ring); else v41_epool_wait(); J->joined[ei] = 1; }
     }
     if (!J && !(J = v41_ejob_create(st))) return false;
-    if (st->n > J->cap) { fprintf(stderr, "ds4: engram 行缓冲 %u 行装不下本块 %u 行\n", J->cap, st->n); return false; }
+    if (st->n > J->cap) { fprintf(stderr, "ds4: Engram 행 버퍼 %u행에 현재 블록 %u행을 담을 수 없습니다\n", J->cap, st->n); return false; }
     J->n = st->n; J->e = e; J->err = 0;
     for (uint32_t ei = 0; ei < J->n_eng; ei++) { J->started[ei] = 0; J->joined[ei] = 0; }
     /* 一轮装不下队列(预填块)⇒ 交给取行线程做全部轮; 装得下(解码 n ≤ 8)⇒ 老路(主线程提交, 到层只收) */
@@ -327,7 +327,7 @@ bool v41_engram_prefetch(ds4_engine *e, ds4_v41_state *st) {
         if (!J->io_th_on) {
             J->io_st = st; J->io_go = 0; J->io_stop = 0;
             if (pthread_create(&J->io_th, NULL, v41_ejob_io_thread, st) != 0) {
-                fprintf(stderr, "ds4: [engram] 取行线程起不来, 退回主线程收盘(慢但正确)\n");
+                fprintf(stderr, "ds4: [Engram] 행 읽기 스레드 시작 실패; 메인 스레드의 동기 읽기로 전환합니다(느리지만 결과 동일)\n");
                 J->io_mode = 0;
             } else J->io_th_on = 1;
         }
@@ -354,7 +354,7 @@ static bool v41_ejob_wait(ds4_v41_state *st, uint32_t ei) {
             pthread_mutex_unlock(&J->io_mu);
             J->joined[ei] = 1;
         }
-        if (J->err) fprintf(stderr, "ds4: engram 取行失败(%s)\n", J->err == 1 ? "行号越界" : "pread 短读");
+        if (J->err) fprintf(stderr, "ds4: Engram 행 읽기 실패(%s)\n", J->err == 1 ? "행 인덱스 범위 초과" : "pread 읽기 크기 부족");
         return J->err == 0;
     }
     if (!J->started[ei]) {
@@ -375,12 +375,12 @@ static bool v41_ejob_wait(ds4_v41_state *st, uint32_t ei) {
         J->joined[ei] = 1;
         if (ei + 1u < J->n_eng && !J->started[ei + 1u] && !v41_ejob_submit_round(st, ei + 1u)) return false;
     }
-    if (J->err) fprintf(stderr, "ds4: engram 取行失败(%s)\n", J->err == 1 ? "行号越界" : "pread 短读");
+    if (J->err) fprintf(stderr, "ds4: Engram 행 읽기 실패(%s)\n", J->err == 1 ? "행 인덱스 범위 초과" : "pread 읽기 크기 부족");
     return J->err == 0;
 }
 
 void v41_engram_close(ds4_v41_state *st) {
-    if (st->eg_n) fprintf(stderr, "ds4: [engram] 解码步取行 %u 轮: 提交→完成均 %.2f ms, 到 engram 层时真等均 %.2f ms, launch→host 节点开跑均 %.2f ms\n",
+    if (st->eg_n) fprintf(stderr, "ds4: [Engram] 디코드 행 읽기 %u라운드: 제출→완료 평균 %.2f ms, Engram 레이어에서 실제 대기 평균 %.2f ms, 실행→호스트 노드 시작 평균 %.2f ms\n",
                           st->eg_n, st->eg_job_s / st->eg_n * 1e3, st->eg_wait_s / st->eg_n * 1e3, st->eg_enter_s / st->eg_n * 1e3);
     v41_ejob_free(st);
     for (uint32_t i = 0; i < DS4_V41_MAX_ENGRAM; i++) {
@@ -408,7 +408,7 @@ static void v41_engram_fingerprint(const ds4_v41_state *st, const v41_ejob *J, u
     ds4_gpu_synchronize();
     const uint64_t hhc = ds4_gpu_tensor_read(st->hc, 0, buf, cnt * 4) ? v41_fnv1a(buf, (size_t)cnt * 4) : 0;
     free(buf);
-    fprintf(stderr, "[v41-prof] L%02u engram 指纹 rows %016llx raw %016llx hc %016llx\n", il,
+    fprintf(stderr, "[v41-prof] L%02u Engram 지문 rows %016llx raw %016llx hc %016llx\n", il,
             (unsigned long long)v41_fnv1a(J->rows[ei], (size_t)n * cols * sizeof(int64_t)),
             (unsigned long long)v41_fnv1a(J->raw[ei], (size_t)n * cols * stride),
             (unsigned long long)hhc);

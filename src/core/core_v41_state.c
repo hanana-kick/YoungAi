@@ -79,10 +79,10 @@ static bool v41_state_plugins(ds4_v41_state *st) {
     /* ③ 是解在 ①+② 那个态上的, 单挂 = 把修正打在另一个基线上: 放行但打一行明白话(每个进程一次, 服务端有多个状态) */
     static int pt_alone_noted;
     if (g_ds4_v41_pt_dir && !g_ds4_v41_amp_dir && !pt_alone_noted++)
-        fprintf(stderr, "ds4: ★只挂了后训练件、没挂反修件 —— 它是解在反修态上的, 这个组合不是判决态★\n");
+        fprintf(stderr, "ds4: 오류: 후속 학습 파일만 적용하고 양자화 보정 파일을 적용하지 않았습니다. 후속 학습 파일은 보정된 모델 기준이므로 현재 조합은 검증된 구성이 아닙니다\n");
     if (v41_amp_load(st, g_ds4_v41_amp_dir, g_ds4_v41_pt_dir)) return true;
-    fprintf(stderr, "ds4: 插件挂不上, 停车(不做静默裸模型对照): 反修 %s / 后训练 %s\n",
-            g_ds4_v41_amp_dir ? g_ds4_v41_amp_dir : "(无)", g_ds4_v41_pt_dir ? g_ds4_v41_pt_dir : "(无)");
+    fprintf(stderr, "ds4: 플러그인 적용 실패로 중단합니다(기본 모델로 조용히 전환하지 않음): 양자화 보정 %s / 후속 학습 %s\n",
+            g_ds4_v41_amp_dir ? g_ds4_v41_amp_dir : "(없음)", g_ds4_v41_pt_dir ? g_ds4_v41_pt_dir : "(없음)");
     return false;
 }
 
@@ -92,8 +92,8 @@ bool v41_state_alloc(ds4_v41_state *st, uint32_t cap, uint32_t ctx, uint32_t log
     st->uid = ++g_v41_state_uid;
     st->cap_tok = cap; st->ctx = ctx; st->idx_owner = -1; st->cand_owner = -1;
     for (uint32_t i = 0; i < DS4_V41_MAX_ENGRAM; i++) st->eshard[i].fd = -1;
-    if (cap == 0 || ctx < cap) { fprintf(stderr, "ds4: V4.1 状态参数错(cap %u ctx %u)\n", cap, ctx); return false; }
-    if (ctx > g_ds4_v41.ctx) { fprintf(stderr, "ds4: V4.1 上下文 %u(模型元数据 deepseek4.context_length), 状态要了 %u\n", g_ds4_v41.ctx, ctx); return false; }
+    if (cap == 0 || ctx < cap) { fprintf(stderr, "ds4: V4.1 상태 매개변수가 잘못되었습니다(cap %u ctx %u)\n", cap, ctx); return false; }
+    if (ctx > g_ds4_v41.ctx) { fprintf(stderr, "ds4: V4.1 컨텍스트 %u(모델 메타데이터 deepseek4.context_length), 요청된 상태 크기 %u\n", g_ds4_v41.ctx, ctx); return false; }
     const uint64_t E = DS4_N_EMBD, HD = DS4_N_HEAD_DIM, SWA = DS4_N_SWA;
     bool ok = true;
     st->hist = xmalloc((size_t)ctx * 4);
@@ -115,7 +115,7 @@ bool v41_state_alloc(ds4_v41_state *st, uint32_t cap, uint32_t ctx, uint32_t log
         if (ok && !ds4_gpu_tensor_fill_f32(st->win[il], 0.f, (uint64_t)(SWA + cap) * HD)) ok = false;
         if (!g_ds4_v41.is_kv_source[il]) continue;
         const uint32_t ratio = ds4_layer_compress_ratio(il);
-        if (!ratio) { fprintf(stderr, "ds4: V4.1 kv 源层 L%u 压缩比为 0\n", il); ok = false; break; }
+        if (!ratio) { fprintf(stderr, "ds4: V4.1 KV 소스 레이어 L%u의 압축비가 0입니다\n", il); ok = false; break; }
         /* ★多两格★(2026-09-18): 第 ctx/ratio 格是解码整步 graph 的**垃圾槽** —— 没凑满组的那些步, 打包核照样发,
          * 写到这一格(永远没人读; 组号上限是 ctx/ratio − 1)。core_v41_attn.c 算垃圾槽下标用的就是 ctx/ratio, 两处同源。 */
         const uint64_t ngcap = (uint64_t)ctx / ratio + 2;
@@ -131,7 +131,7 @@ bool v41_state_alloc(ds4_v41_state *st, uint32_t cap, uint32_t ctx, uint32_t log
         }
     }
     if (ok && !v41_state_plugins(st)) ok = false;
-    if (!ok) { fprintf(stderr, "ds4: V4.1 状态缓冲分配失败(cap=%u ctx=%u)\n", cap, ctx); v41_state_free(st); }
+    if (!ok) { fprintf(stderr, "ds4: V4.1 상태 버퍼 할당 실패(cap=%u ctx=%u)\n", cap, ctx); v41_state_free(st); }
     return ok;
 }
 
@@ -144,7 +144,7 @@ bool v41_batch_rows_alloc(ds4_v41_state *st, uint32_t cap) {
     v41_alloc_dense(st, cap, cap, &ok);
     v41_alloc_attn_rows(st, cap, &ok);   /* q/kv/o/low 也按批: 注意力的投影段在批态上发(core_v41_attn.c 三段拆分) */
     if (ok && !v41_state_plugins(st)) ok = false;
-    if (!ok) { fprintf(stderr, "ds4: V4.1 批态行缓冲分配失败(cap=%u)\n", cap); v41_state_free(st); }
+    if (!ok) { fprintf(stderr, "ds4: V4.1 배치 행 버퍼 할당 실패(cap=%u)\n", cap); v41_state_free(st); }
     return ok;
 }
 
@@ -153,7 +153,7 @@ bool v41_batch_rows_alloc(ds4_v41_state *st, uint32_t cap) {
  * 出错会怎样: 漏搬环的前 SWA 行 = 窗口历史全丢, 下一步注意力只看新 token, 不报错只出胡话(逐字节门抓)。 */
 bool v41_state_shrink(ds4_v41_state *st, uint32_t rcap) {
     const uint64_t HD = DS4_N_HEAD_DIM, SWA = DS4_N_SWA, rowb = HD * 4;
-    if (!rcap || rcap > st->cap_tok) { fprintf(stderr, "ds4: V4.1 状态收缩参数错(rcap %u cap %u)\n", rcap, st->cap_tok); return false; }
+    if (!rcap || rcap > st->cap_tok) { fprintf(stderr, "ds4: V4.1 상태 축소 매개변수가 잘못되었습니다(rcap %u cap %u)\n", rcap, st->cap_tok); return false; }
     v41_graph_free(st);
     v41_amp_free(st);
     V41_FREE(&st->erows, &st->ekv, &st->iscore, &st->cand);
@@ -182,7 +182,7 @@ bool v41_state_shrink(ds4_v41_state *st, uint32_t rcap) {
         ds4_gpu_tensor_free(st->cpre_kv[il]); ds4_gpu_tensor_free(st->cpre_sc[il]); st->cpre_kv[il] = ck; st->cpre_sc[il] = cs;
     }
     st->cap_tok = rcap; st->logits_rows = 0; st->n_direct1 = 0; memset(st->n_direct_n, 0, sizeof st->n_direct_n);
-    if (!ok) fprintf(stderr, "ds4: V4.1 状态收缩失败(rcap %u)\n", rcap);
+    if (!ok) fprintf(stderr, "ds4: V4.1 상태 축소 실패(rcap %u)\n", rcap);
     return ok;
 }
 
@@ -201,7 +201,7 @@ bool v41_index_scratch_prepare(ds4_v41_state *st, uint32_t ng_need, uint32_t row
     const uint32_t kcap = g_ds4_v41.candidate_source_layer >= 0 && g_ds4_v41.candidate_topk_blocks > 0 ? (uint32_t)g_ds4_v41.candidate_topk_blocks : 0u;
     if (ng_need <= st->iscap && rows_score <= st->isrows && rows_cand <= st->icrows && st->iscore && (st->cand || !kcap)) return true;
     if (st->graph) {   /* 图那条应当在 capture 前长够(core_decode_graph.c), 这里撞见就是 bug */
-        fprintf(stderr, "ds4: ★捕获态下要长索引草稿(要 %u/%u 行 × %u 组, 现有 %u/%u × %u)★\n", rows_score, rows_cand, ng_need, st->isrows, st->icrows, st->iscap); return false; }
+        fprintf(stderr, "ds4: 오류: 그래프 캡처 상태에서 인덱스 초안 버퍼 확장이 필요합니다(필요 %u/%u행 × %u그룹, 현재 %u/%u × %u)\n", rows_score, rows_cand, ng_need, st->isrows, st->icrows, st->iscap); return false; }
     uint32_t want = st->iscap ? st->iscap * 2u : ng_need;
     if (want < ng_need) want = ng_need;
     if (want > st->ctx) want = st->ctx;
@@ -220,7 +220,7 @@ bool v41_index_scratch_prepare(ds4_v41_state *st, uint32_t ng_need, uint32_t row
     if (!ok) {
         if (is) ds4_gpu_tensor_free(is);
         if (cd) ds4_gpu_tensor_free(cd);
-        fprintf(stderr, "ds4: V4.1 索引草稿长不动(%u 组 × 打分 %u 行 / 候选列表 %u 行)\n", want, rs, rc);
+        fprintf(stderr, "ds4: V4.1 인덱스 초안 버퍼를 확장할 수 없습니다(%u그룹 × 점수 %u행 / 후보 목록 %u행)\n", want, rs, rc);
         return false;
     }
     if (st->iscore) ds4_gpu_tensor_free(st->iscore);

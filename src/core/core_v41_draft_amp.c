@@ -17,13 +17,13 @@
 bool v41_draft_amp_load(ds4_v41_draft *dr, const char *path) {
     struct { char magic[4]; uint32_t d, k, rsv; } h;
     FILE *f = fopen(path, "rb");
-    if (!f) { fprintf(stderr, "ds4: [v41] --draft-amp 打不开 %s\n", path); return false; }
+    if (!f) { fprintf(stderr, "ds4: [v41] --draft-amp %s를 열 수 없습니다\n", path); return false; }
     bool ok = fread(&h, sizeof h, 1, f) == 1 && !memcmp(h.magic, "DSPA", 4);
     if (ok && h.d != DS4_N_EMBD) {
-        fprintf(stderr, "ds4: [v41] --draft-amp 维度 %u ≠ %u, 不是这个模型解的\n", h.d, (unsigned)DS4_N_EMBD);
+        fprintf(stderr, "ds4: [v41] --draft-amp 차원 %u ≠ %u, 현재 모델에 맞춘 보정 파일이 아닙니다\n", h.d, (unsigned)DS4_N_EMBD);
         ok = false;
     }
-    if (!ok) { fclose(f); fprintf(stderr, "ds4: [v41] --draft-amp %s 不是对齐边车\n", path); return false; }
+    if (!ok) { fclose(f); fprintf(stderr, "ds4: [v41] --draft-amp %s는 정렬 보정 사이드카가 아닙니다\n", path); return false; }
     const uint64_t nb = (uint64_t)h.k * h.d * 4;
     float *buf = xmalloc((size_t)nb);
     bool alloc_ok = true;
@@ -36,9 +36,9 @@ bool v41_draft_amp_load(ds4_v41_draft *dr, const char *path) {
     if (ok) ok = ds4_gpu_tensor_write(dr->ampA, 0, buf, nb) != 0;
     if (ok) ok = fread(buf, 1, (size_t)nb, f) == nb && ds4_gpu_tensor_write(dr->ampB, 0, buf, nb);
     free(buf); fclose(f);
-    if (!ok) { fprintf(stderr, "ds4: [v41] --draft-amp 读取失败\n"); return false; }
+    if (!ok) { fprintf(stderr, "ds4: [v41] --draft-amp 읽기 실패\n"); return false; }
     dr->ampK = h.k;
-    fprintf(stderr, "ds4: [v41] 草稿器对齐边车已挂: K=%u D=%u β=%.3f (%s)\n", h.k, h.d, (double)g_ds4_v41_draft_amp_scale, path);
+    fprintf(stderr, "ds4: [v41] 초안 모델 정렬 사이드카 적용: K=%u D=%u β=%.3f (%s)\n", h.k, h.d, (double)g_ds4_v41_draft_amp_scale, path);
     return true;
 }
 
@@ -52,11 +52,11 @@ static bool v41_draft_amp_dir_load(ds4_v41_draft *dr, const char *dir) {
     snprintf(p, sizeof p, "%s/base.fnv", dir);
     FILE *f = fopen(p, "r");
     unsigned long long want = 0; unsigned wn = 0, hn = 0;
-    if (!f || fscanf(f, "%llx %u", &want, &wn) != 2) { if (f) fclose(f); fprintf(stderr, "ds4: [v41] 草稿器件目录 %s 没有 base.fnv, 核对不了底座, 停车\n", dir); return false; }
+    if (!f || fscanf(f, "%llx %u", &want, &wn) != 2) { if (f) fclose(f); fprintf(stderr, "ds4: [v41] 초안 파일 디렉터리 %s에 base.fnv가 없어 기본 모델 검증이 불가능합니다. 중단합니다\n", dir); return false; }
     fclose(f);
     const uint64_t have = (g_ds4_v41_amp_dir && g_ds4_v41_amp_dir[0]) ? ds4_gr_dir_fnv(g_ds4_v41_amp_dir, DS4_N_LAYER, &hn) : DS4_GR_FNV_SEED;
     if (have != (uint64_t)want || hn != wn) {
-        fprintf(stderr, "ds4: ★[v41] 草稿器件 %s 是对着另一份 ② 训的(指纹 %016llx/%u, 现挂 %016llx/%u), 停车★\n", dir, want, wn, (unsigned long long)have, hn);
+        fprintf(stderr, "ds4: 오류: [v41] 초안 파일 %s는 다른 ② 보정 버전으로 학습됐습니다(지문 %016llx/%u, 현재 %016llx/%u). 중단합니다\n", dir, want, wn, (unsigned long long)have, hn);
         return false;
     }
     snprintf(p, sizeof p, "%s/exit.dspa", dir);
@@ -67,7 +67,7 @@ static bool v41_draft_amp_dir_load(ds4_v41_draft *dr, const char *dir) {
         f = fopen(p, "rb");
         if (!f) continue;
         int32_t hd[3] = { 0, 0, 0 };
-        if (fread(hd, 4, 3, f) != 3 || hd[0] != (int32_t)E || hd[1] <= 0 || hd[2] != 1) { fclose(f); fprintf(stderr, "ds4: [v41] 塔件 %s 头不对(要 E %u, f32)\n", p, E); return false; }
+        if (fread(hd, 4, 3, f) != 3 || hd[0] != (int32_t)E || hd[1] <= 0 || hd[2] != 1) { fclose(f); fprintf(stderr, "ds4: [v41] 타워 파일 %s의 헤더가 잘못되었습니다(필요 E %u, f32)\n", p, E); return false; }
         const uint32_t K = (uint32_t)hd[1]; const uint64_t nel = (uint64_t)K * E;
         float *buf = xmalloc((size_t)nel * 4);
         bool ok = true;
@@ -76,7 +76,7 @@ static bool v41_draft_amp_dir_load(ds4_v41_draft *dr, const char *dir) {
         if (ok && g_ds4_v41_draft_amp_scale != 1.0f) for (uint64_t i = 0; i < nel; i++) buf[i] *= g_ds4_v41_draft_amp_scale;
         ok = ok && ds4_gpu_tensor_write(dr->st.ampA[T], 0, buf, nel * 4) && fread(buf, 1, (size_t)nel * 4, f) == nel * 4 && ds4_gpu_tensor_write(dr->st.ampB[T], 0, buf, nel * 4);
         free(buf); fclose(f);
-        if (!ok) { fprintf(stderr, "ds4: [v41] 塔件 %s 读取失败\n", p); return false; }
+        if (!ok) { fprintf(stderr, "ds4: [v41] 타워 파일 %s 읽기 실패\n", p); return false; }
         dr->st.ampK[T] = K; if (K > kmax) kmax = K; nt++;
     }
     /* 偏置表(markov_embd.bin {Vm,R,1} / markov_head.bin {V,R,1} + f32, 训练器 dk_save 落的): 两张都在才顶替原件, 只有一张 = 件目录坏了, 停车 */
@@ -87,24 +87,24 @@ static bool v41_draft_amp_dir_load(ds4_v41_draft *dr, const char *dir) {
         if (!f) continue;
         int32_t hd[3] = { 0, 0, 0 };
         const uint32_t R = g_ds4_v41.mtp_markov_rank;
-        if (fread(hd, 4, 3, f) != 3 || hd[1] != (int32_t)R || hd[2] != 1 || hd[0] <= 0 || (w && hd[0] != (int32_t)DS4_N_VOCAB)) { fclose(f); fprintf(stderr, "ds4: [v41] 偏置表 %s 头不对\n", p); return false; }
+        if (fread(hd, 4, 3, f) != 3 || hd[1] != (int32_t)R || hd[2] != 1 || hd[0] <= 0 || (w && hd[0] != (int32_t)DS4_N_VOCAB)) { fclose(f); fprintf(stderr, "ds4: [v41] 바이어스 테이블 %s의 헤더가 잘못되었습니다\n", p); return false; }
         const uint64_t nel = (uint64_t)hd[0] * R; float *buf = xmalloc((size_t)nel * 4); bool ok = true;
         ds4_gpu_tensor **dst = w ? &dr->mkH_dev : &dr->mkE_dev;
         *dst = v41_alloc(nel * 4, &ok);
         ok = ok && fread(buf, 1, (size_t)nel * 4, f) == nel * 4 && ds4_gpu_tensor_write(*dst, 0, buf, nel * 4);
         free(buf); fclose(f);
-        if (!ok) { fprintf(stderr, "ds4: [v41] 偏置表 %s 读取失败\n", p); return false; }
+        if (!ok) { fprintf(stderr, "ds4: [v41] 바이어스 테이블 %s 읽기 실패\n", p); return false; }
         if (!w) dr->mk_rows = (uint32_t)hd[0];
         nm++;
     }
-    if (nm == 1) { fprintf(stderr, "ds4: [v41] 件目录 %s 的偏置表只有一张, 停车\n", dir); return false; }
-    if (!nt && !dr->ampK && !nm) { fprintf(stderr, "ds4: [v41] 草稿器件目录 %s 里没有 tower_Tn.bin / exit.dspa / markov_*.bin\n", dir); return false; }
+    if (nm == 1) { fprintf(stderr, "ds4: [v41] 파일 디렉터리 %s에 바이어스 테이블이 하나뿐입니다. 중단합니다\n", dir); return false; }
+    if (!nt && !dr->ampK && !nm) { fprintf(stderr, "ds4: [v41] 초안 모델 파일 디렉터리 %s에 tower_Tn.bin / exit.dspa / markov_*.bin이 없습니다\n", dir); return false; }
     if (kmax) { bool ok = true; dr->st.ampT = v41_alloc((uint64_t)dr->st.cap_tok * kmax * 4, &ok); if (!ok) return false; }
-    fprintf(stderr, "ds4: [v41] 草稿器件已挂: %u 个塔件(K≤%u) + 出口件 K=%u%s, β=%.3f (%s)\n", nt, kmax, dr->ampK, nm ? " + 偏置表" : "", (double)g_ds4_v41_draft_amp_scale, dir);
+    fprintf(stderr, "ds4: [v41] 초안 모델 파일 적용: 타워 %u개(K≤%u) + 출력 파일 K=%u%s, β=%.3f (%s)\n", nt, kmax, dr->ampK, nm ? " + 바이어스 테이블" : "", (double)g_ds4_v41_draft_amp_scale, dir);
     return true;
 }
 
-/* --draft-amp 的分发: 文件 = 09-16 的出口对齐边车; 目录 = 草稿器蒸馏的件(出口件 + 塔件 + 偏置表) */
+/* --draft-amp 的分发: 文件 = 09-16 的出口对齐边车; 目录 = 草稿器蒸馏的件(出口件 + 塔件 + 바이어스 테이블) */
 bool v41_draft_amp_mount(ds4_v41_draft *dr, const char *path) {
     struct stat sb;
     const bool isdir = stat(path, &sb) == 0 && S_ISDIR(sb.st_mode);

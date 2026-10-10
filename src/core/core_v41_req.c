@@ -49,7 +49,7 @@ struct ds4_v41_req *ds4_v41_req_open(ds4_engine *e, const int *prompt, int n_pro
     if (!e || !prompt || n_prompt < 1 || !ds4_engine_is_v41(e) || !e->metal_ready) return NULL;
     const uint32_t np = (uint32_t)n_prompt;
     uint32_t ctx = g_ds4_v41.ctx;   /* 上下文只从模型元数据来(用户 2026-09-22) */
-    if (ctx == 0 || np + 1u > ctx) { fprintf(stderr, "ds4: 提示 %u token 超过上下文 %u\n", np, ctx); return NULL; }
+    if (ctx == 0 || np + 1u > ctx) { fprintf(stderr, "ds4: 프롬프트 %u토큰이 컨텍스트 %u토큰을 초과했습니다\n", np, ctx); return NULL; }
     /* 只按这一趟真正用得到的位置分配(与 generate_argmax 同一条账): np + 上限 + 投机余量; ctx 仍是硬边界 */
     const uint64_t need = (uint64_t)np + (uint64_t)(n_predict > 0 ? n_predict : 0) + DS4_MTP_MAX_BLOCK + 2u;
     if ((uint64_t)ctx > need) ctx = (uint32_t)need;
@@ -119,7 +119,7 @@ int ds4_v41_multi_step(struct ds4_v41_batch *b, struct ds4_v41_req **r, int n) {
     int32_t tok[DS4_V41_GEMV_MAX_TOK];
     if (!b || !r || n < 1 || n > (int)b->cap) return 1;
     for (int i = 0; i < n; i++) {
-        if (!r[i] || !r[i]->prefilled) { fprintf(stderr, "ds4: V4.1 合批第 %d 路还没预填完\n", i); return 1; }
+        if (!r[i] || !r[i]->prefilled) { fprintf(stderr, "ds4: V4.1 배치의 요청 %d는 아직 프리필이 완료되지 않았습니다\n", i); return 1; }
         m[i] = &r[i]->st; tok[i] = r[i]->next;
     }
     uint32_t ones[DS4_V41_GEMV_MAX_TOK]; int32_t wants[DS4_V41_GEMV_MAX_TOK];
@@ -149,7 +149,7 @@ int ds4_v41_multi_round(struct ds4_v41_batch *b, struct ds4_v41_req **r, int n) 
     const int allow_spec = n <= 2;
     for (int i = 0; i < n; i++) {
         struct ds4_v41_req *q = r[i];
-        if (!q || !q->prefilled) { fprintf(stderr, "ds4: V4.1 合批第 %d 路还没预填完\n", i); return 1; }
+        if (!q || !q->prefilled) { fprintf(stderr, "ds4: V4.1 배치의 요청 %d는 아직 프리필이 완료되지 않았습니다\n", i); return 1; }
         m[i] = &q->st; batch[i][0] = q->next; rows[i] = 1u; drafted[i] = 0;
         if (!allow_spec || !q->spec || q->st.n_past + DS4_MTP_MAX_BLOCK + 1u > q->st.ctx) continue;
         const double td = now_sec();

@@ -18,7 +18,7 @@ void ds4_engine_v41_set_lanes(int on) { g_ds4_v41_lanes = on ? 1 : 0; }
 
 bool v41_batch_alloc(ds4_v41_batch *b, uint32_t cap) {
     memset(b, 0, sizeof *b);
-    if (!cap || cap > DS4_V41_GEMV_MAX_TOK) { fprintf(stderr, "ds4: V4.1 批态行数 %u 超解码小批核路上限 %u\n", cap, DS4_V41_GEMV_MAX_TOK); return false; }
+    if (!cap || cap > DS4_V41_GEMV_MAX_TOK) { fprintf(stderr, "ds4: V4.1 배치 상태 행 수 %u가 디코드 배치 커널 한도 %u를 초과했습니다\n", cap, DS4_V41_GEMV_MAX_TOK); return false; }
     if (!v41_batch_rows_alloc(&b->rows, cap)) return false;
     b->cap = cap;
     b->am = ds4_gpu_tensor_alloc((uint64_t)cap * 16u);
@@ -139,10 +139,10 @@ bool v41_multi_body(ds4_engine *e, ds4_v41_batch *b, ds4_v41_state **m, const ui
     if (prof) {
         tp = mp_tick(&P.exit, tp);
         double cache = 0; for (uint32_t i = 0; i < nm; i++) cache += P.cache[i];
-        fprintf(stderr, "[multi-prof] R=%u ms: embed %.1f engram %.1f hc %.1f 注意力投影进 %.1f 缓存段 %.1f(每路", R,
+        fprintf(stderr, "[multi-prof] R=%u ms: 임베딩 %.1f Engram %.1f hc %.1f 어텐션 입력 투영 %.1f 캐시 구간 %.1f(요청당", R,
                 P.embed * 1e3, P.engram * 1e3, P.hc * 1e3, P.attn_in * 1e3, cache * 1e3);
         for (uint32_t i = 0; i < nm; i++) fprintf(stderr, " %.1f", P.cache[i] * 1e3);
-        fprintf(stderr, ") 投影出 %.1f MoE %.1f 出口 %.1f | 合计 %.1f\n", P.attn_out * 1e3, P.moe * 1e3, P.exit * 1e3,
+        fprintf(stderr, ") 출력 투영 %.1f MoE %.1f 출력 헤드 %.1f | 합계 %.1f\n", P.attn_out * 1e3, P.moe * 1e3, P.exit * 1e3,
                 (P.embed + P.engram + P.hc + P.attn_in + cache + P.attn_out + P.moe + P.exit) * 1e3);
     }
     return ok;
@@ -166,15 +166,15 @@ bool v41_multi_step(ds4_engine *e, ds4_v41_batch *b, ds4_v41_state **m, const in
     ds4_v41_state *B = &b->rows;
     const uint32_t HC = DS4_N_HC;
     uint32_t r0[DS4_V41_GEMV_MAX_TOK], nr[DS4_V41_GEMV_MAX_TOK], R = 0;
-    if (!nm || nm > b->cap) { fprintf(stderr, "ds4: V4.1 合批 %u 路超批态 %u\n", nm, b->cap); return false; }
+    if (!nm || nm > b->cap) { fprintf(stderr, "ds4: V4.1 배치 요청 수 %u가 배치 상태 한도 %u를 초과했습니다\n", nm, b->cap); return false; }
     for (uint32_t i = 0; i < nm; i++) { nr[i] = rows ? rows[i] : 1u; r0[i] = R; R += nr[i]; }
-    if (!R || R > b->cap) { fprintf(stderr, "ds4: V4.1 合批 %u 行超批态 %u\n", R, b->cap); return false; }
+    if (!R || R > b->cap) { fprintf(stderr, "ds4: V4.1 배치 %u행이 배치 상태 한도 %u를 초과했습니다\n", R, b->cap); return false; }
     int32_t posv[DS4_V41_GEMV_MAX_TOK];
     v41_rowview rv[DS4_V41_GEMV_MAX_TOK];
     memset(rv, 0, sizeof rv);
     for (uint32_t i = 0; i < nm; i++) {
-        if (m[i]->n_past + nr[i] > m[i]->ctx) { fprintf(stderr, "ds4: V4.1 合批第 %u 路上下文满(%u)\n", i, m[i]->ctx); return false; }
-        if (m[i]->hc || m[i]->cap_tok < nr[i]) { fprintf(stderr, "ds4: V4.1 合批第 %u 路不是收缩后的请求态或行数 %u 超 cap %u\n", i, nr[i], m[i]->cap_tok); return false; }
+        if (m[i]->n_past + nr[i] > m[i]->ctx) { fprintf(stderr, "ds4: V4.1 배치 요청 %u의 컨텍스트 한도 도달(%u)\n", i, m[i]->ctx); return false; }
+        if (m[i]->hc || m[i]->cap_tok < nr[i]) { fprintf(stderr, "ds4: V4.1 배치 요청 %u가 축소된 요청 상태가 아니거나 행 수 %u가 한도 %u를 초과했습니다\n", i, nr[i], m[i]->cap_tok); return false; }
         for (uint32_t j = 0; j < nr[i]; j++) { posv[r0[i] + j] = (int32_t)(m[i]->n_past + j); m[i]->hist[m[i]->n_past + j] = tok[r0[i] + j]; }
     }
     bool ok = ds4_gpu_tensor_write(B->tok, 0, tok, (uint64_t)R * 4) && ds4_gpu_tensor_write(B->pos, 0, posv, (uint64_t)R * 4) &&
@@ -187,7 +187,7 @@ bool v41_multi_step(ds4_engine *e, ds4_v41_batch *b, ds4_v41_state **m, const in
     if (ok) ok = v41_multi_body(e, b, m, r0, nr, nm, R);
     if (ok && (ds4_gpu_end_commands() == 0 || ds4_gpu_synchronize() == 0)) ok = false;
     for (uint32_t i = 0; i < nm; i++) { v41_detach(m[i], &rv[i]); if (ok) v41_multi_advance(m[i], nr[i]); }
-    if (!ok) fprintf(stderr, "ds4: V4.1 合批前向失败(%u 路 %u 行)\n", nm, R);
+    if (!ok) fprintf(stderr, "ds4: V4.1 배치 순방향 계산 실패(%u개 요청, %u행)\n", nm, R);
     return ok;
 }
 

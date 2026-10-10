@@ -102,21 +102,21 @@ int ds4_engine_v41_ctx(void) { return (int)g_ds4_v41.ctx; }   /* 模型元数据
 int g_ds4_v41_chunk = 0;
 void ds4_engine_v41_set_chunk(int n) { g_ds4_v41_chunk = n > 0 ? n : 0; }
 
-/* 取下一个 token 的三条路(设备 argmax / 设备采样核 / 主机惩罚路)在 core_v41_sample.c(2026-09-28); 以前"采样 = 读回 517 KB 主机采样"
- * 的那版量过每步只贵 0.32 ms, 真正丢的是投机(采样下关掉, −32%), 所以采样进了设备核, 投机在采样下按拒绝采样走。 */
+/* 取下一个 token 的三条路(设备 argmax / 设备采样核 / 호스트 패널티 경로)在 core_v41_sample.c(2026-09-28); 以前"采样 = 读回 517 KB 主机采样"
+ * 的那版量过每步只贵 0.32 ms, 真正丢的是投机(采样下关掉, −32%), 所以采样进了GPU 커널, 投机在采样下按拒绝采样走。 */
 
 int ds4_engine_v41_generate_argmax(ds4_engine *e, const int *prompt, int n_prompt, int n_predict,
                                    ds4_v41_emit_fn emit, void *ud) {
     if (!e || !prompt || n_prompt < 1 || !ds4_engine_is_v41(e)) return 1;
-    if (!e->metal_ready) { fprintf(stderr, "ds4: V4.1 前向需要 GPU 后端\n"); return 1; }
+    if (!e->metal_ready) { fprintf(stderr, "ds4: V4.1 순방향 계산에는 GPU 백엔드가 필요합니다\n"); return 1; }
     g_v41_last_spec_rounds = g_v41_last_spec_off = g_v41_last_spec_acc = 0;   /* 预填就失败的趟也不能把上一趟的账留给监控 */
     const uint32_t np = (uint32_t)n_prompt;
     /* ★上下文只从模型元数据来(g_ds4_v41.ctx ← GGUF deepseek4.context_length)★(用户 2026-09-22): 以前这里收调用方传的
      * ctx_size(CLI --ctx / 服务端 --ctx, 默认 32768), 于是每个入口各配一个数(尺 32768 / 部署 1M / 判决 NTOK), 同一条请求
      * 换个入口就换一条边界。现在引擎里没有任何写死的上下文, 也没有参数能改它; 提示装不下就是装不下, 不"放大"也不"压回"。 */
     uint32_t ctx = g_ds4_v41.ctx;
-    if (ctx == 0) { fprintf(stderr, "ds4: 模型元数据没有 deepseek4.context_length\n"); return 1; }
-    if (np + 1u > ctx) { fprintf(stderr, "ds4: 提示 %u token 超过上下文 %u\n", np, ctx); return 1; }
+    if (ctx == 0) { fprintf(stderr, "ds4: 모델 메타데이터에 deepseek4.context_length가 없습니다\n"); return 1; }
+    if (np + 1u > ctx) { fprintf(stderr, "ds4: 프롬프트 %u토큰이 컨텍스트 %u토큰을 초과했습니다\n", np, ctx); return 1; }
     /* ★只按这一趟真正用得到的位置分配★(2026-09-22): 状态里几个大块是 cap_tok × ctx 的
      * (iscore f32 + cand u8 = ctx × 2.5 KB, 再加 kv 源层的 ctx/ratio 格), 1M 是边界, 不是这条请求能用到
      * 的长度。以前照边界分: 连一条 22 token 的请求都要吃 2.5 GiB 打分矩阵, 于是"上下文 1M"被误当成"每条请求都贵"。
@@ -142,14 +142,14 @@ int ds4_engine_v41_generate_argmax(ds4_engine *e, const int *prompt, int n_promp
     const bool dev_sample = g_decode_sampling.temperature > 0.f && !penal;
     int dspark = g_ds4_v41_dspark;
     if (penal && dspark == 2) {
-        fprintf(stderr, "ds4: ★复读惩罚(dry %.2f freq %.2f presence %.2f)与 --dspark 投机不能同开★(惩罚要按 token 史改 logits, 投机验证不接; 去掉 --dspark 或关惩罚)\n",
+        fprintf(stderr, "ds4: 반복 패널티(dry %.2f freq %.2f presence %.2f)와 --dspark 추측 디코드는 동시에 사용할 수 없습니다(패널티는 토큰 이력에 따라 logits를 수정하지만 추측 검증에서 미지원; --dspark 또는 패널티 비활성화 필요)\n",
                 (double)g_decode_sampling.dry_multiplier, (double)g_decode_sampling.freq_penalty, (double)g_decode_sampling.presence_penalty);
         if (am) ds4_gpu_tensor_free(am);
         v41_state_free(&st);
         return 1;
     }
     if (penal && dspark) {
-        fprintf(stderr, "ds4: [v41] 本请求开了复读惩罚(dry %.2f freq %.2f presence %.2f), 投机不接惩罚 ⇒ 这一条走纯解码\n",
+        fprintf(stderr, "ds4: [v41] 이 요청은 반복 패널티(dry %.2f freq %.2f presence %.2f)가 활성화되어 추측 디코드를 사용하지 않고 일반 디코드로 처리합니다\n",
                 (double)g_decode_sampling.dry_multiplier, (double)g_decode_sampling.freq_penalty, (double)g_decode_sampling.presence_penalty);
         dspark = 0;
     }
@@ -179,7 +179,7 @@ int ds4_engine_v41_generate_argmax(ds4_engine *e, const int *prompt, int n_promp
              * 的提示预填 400 秒, 算给一个走掉的连接就是让后面排队的请求跟着超时(2026-09-22 早盘实撞)。 */
             if (ok && g_v41_progress &&
                 g_v41_progress(g_v41_progress_ud, "prefill_chunk", (int)c0, (int)np) != 0) {
-                fprintf(stderr, "[v41] 预填在 %u/%u 处按调用方要求中止\n", c0, np);
+                fprintf(stderr, "[v41] 호출자 요청으로 프리필을 %u/%u 위치에서 중단했습니다\n", c0, np);
                 aborted = true;
                 break;
             }
@@ -187,10 +187,10 @@ int ds4_engine_v41_generate_argmax(ds4_engine *e, const int *prompt, int n_promp
         if (!ok || aborted) break;
         const double t1 = now_sec();
         fprintf(stderr, "[v41] prefill %u token %.1fs (%.1f t/s)\n", np, t1 - t0, (double)np / (t1 - t0 + 1e-9));
-        if (sampling) fprintf(stderr, "[v41] 解码采样(%s) temp %.2f top_p %.2f min_p %.2f top_k %d seed %llu%s dry %.2f/%.2f/%d freq %.2f presence %.2f\n",
-                              dev_sample ? "设备核" : "主机惩罚路",
+        if (sampling) fprintf(stderr, "[v41] 디코드 샘플링(%s) temp %.2f top_p %.2f min_p %.2f top_k %d seed %llu%s dry %.2f/%.2f/%d freq %.2f presence %.2f\n",
+                              dev_sample ? "GPU 커널" : "호스트 패널티 경로",
                               (double)g_decode_sampling.temperature, (double)g_decode_sampling.top_p, (double)g_decode_sampling.min_p,
-                              g_decode_sampling.top_k, (unsigned long long)rng, penal ? " 惩罚" : "", (double)g_decode_sampling.dry_multiplier,
+                              g_decode_sampling.top_k, (unsigned long long)rng, penal ? " 패널티" : "", (double)g_decode_sampling.dry_multiplier,
                               (double)g_decode_sampling.dry_base, g_decode_sampling.dry_allowed_length,
                               (double)g_decode_sampling.freq_penalty, (double)g_decode_sampling.presence_penalty);
         /* 末位 logits → argmax(或采样) → 逐 token 解码(n=1 前向) */
@@ -200,7 +200,7 @@ int ds4_engine_v41_generate_argmax(ds4_engine *e, const int *prompt, int n_promp
             float *row = xmalloc((size_t)DS4_N_VOCAB * 4);
             if (ds4_gpu_tensor_read(st.logits, (uint64_t)st.last_logit_row * DS4_N_VOCAB * 4, row, (uint64_t)DS4_N_VOCAB * 4)) {
                 uint32_t best = 0; for (uint32_t v = 1; v < DS4_N_VOCAB; v++) if (row[v] > row[best]) best = v;
-                if ((int32_t)best != tok32) fprintf(stderr, "ds4: ★V4.1 argmax 核 %d ≠ 主机 %u (logit %.4f vs %.4f)★\n", tok32, best, (double)row[tok32], (double)row[best]);
+                if ((int32_t)best != tok32) fprintf(stderr, "ds4: 경고: V4.1 argmax 커널 %d ≠ 호스트 %u (logit %.4f vs %.4f)\n", tok32, best, (double)row[tok32], (double)row[best]);
             }
             free(row);
         }
@@ -211,7 +211,7 @@ int ds4_engine_v41_generate_argmax(ds4_engine *e, const int *prompt, int n_promp
          * 一轮 = 草稿器出 block 位 → 主模型一次验证 1+k 位 → 逐位比贪心结果, 接受最长前缀。
          * ★温 0 下这与纯解码逐 token 是同一串输出★: 接受的条件就是"主模型自己也会选这个 token",
          * 不接受的位置全部回滚。所以它是纯粹的省时间, 不是近似 —— 门也就是逐字节同。
-         * ★采样下(2026-09-28)★: 接受 ⇔ 均匀数 < 目标分布给草稿的概率, 拒绝从残差抽(设备核里做); 吐出 token 的边缘分布 = 纯解码采样的分布,
+         * ★采样下(2026-09-28)★: 接受 ⇔ 均匀数 < 目标分布给草稿的概率, 拒绝从残差抽(GPU 커널里做); 吐出 token 的边缘分布 = 纯解码采样的分布,
          * 但同 seed 下两条路的具体 token 不同(用了不同的硬币) —— 门是分布级(tests/cuda_sample_selftest.c), 不是逐字节。 */
         ds4_v41_draft dr;
         const bool spec = dspark && v41_draft_alloc(e, &dr);
@@ -261,14 +261,14 @@ int ds4_engine_v41_generate_argmax(ds4_engine *e, const int *prompt, int n_promp
                 if (emit && emit(tok, ud) != 0) { (void)v41_graph_wait(e, &st, &nt); break; }   /* 图已发, 等完再走 */
                 if (!v41_graph_wait(e, &st, &nt)) { ok = false; break; }
                 if (spec) v41_sched_cost(&cal, 1u, (now_sec() - ts0) * 1e3);   /* 纯解码一步的墙钟 = 调度器的比价基准 */
-                /* 惩罚路: 图末尾槽里的 token 不用, 读回这一步的 logits 行(row 0, n=1)在主机罚完采; 设备采样/argmax: nt 就是槽里的 token */
+                /* 패널티路: 图末尾槽里的 token 不用, 读回这一步的 logits 行(row 0, n=1)在主机罚完采; 设备采样/argmax: nt 就是槽里的 token */
                 if (rowbuf && !v41_next_token(&st, am, 0, rowbuf, &rng, &hist, &nt)) { ok = false; break; }
                 tok = (int)nt;
                 continue;
             }
             if (emit && emit(tok, ud) != 0) { hit_eos = tok == eos; break; }
             if (tok == eos) { hit_eos = true; break; }
-            if (st.n_past + 1 > st.ctx) { fprintf(stderr, "\n[v41] 上下文满 %u\n", st.ctx); break; }
+            if (st.n_past + 1 > st.ctx) { fprintf(stderr, "\n[v41] 컨텍스트 한도 도달 %u\n", st.ctx); break; }
             uint32_t k = 0;
             int32_t batch[DS4_MTP_MAX_BLOCK + 1];
             batch[0] = (int32_t)tok;
@@ -326,7 +326,7 @@ int ds4_engine_v41_generate_argmax(ds4_engine *e, const int *prompt, int n_promp
                 tr3 = now_sec();
                 if (!v41_device_next(&st, am, 0u, nb, batch, want)) { ok = false; break; }   /* 采样核 / 逐行 argmax, 拼成 want[] */
             }
-            /* 惩罚路: 投机已拒 ⇒ nb 恒 1, 只有 want[0]; 直发这一步(暖身步/捕获失败的重来路)也按主机路取 */
+            /* 패널티路: 投机已拒 ⇒ nb 恒 1, 只有 want[0]; 直发这一步(暖身步/捕获失败的重来路)也按主机路取 */
             if (rowbuf && !v41_next_token(&st, am, 0, rowbuf, &rng, &hist, &want[0])) { ok = false; break; }
             if (k) { ms_draft += (tr1 - tr0) * 1e3; ms_snap += (tr2 - tr1) * 1e3;
                      ms_verify += (tr3 - tr2) * 1e3; ms_argmax += (now_sec() - tr3) * 1e3; }
@@ -352,9 +352,9 @@ int ds4_engine_v41_generate_argmax(ds4_engine *e, const int *prompt, int n_promp
                     fprintf(stderr, " %.3f", isfinite(c) ? 1.0 / (1.0 + exp(-(double)c)) : 0.0);
                 }
                 if (g_ds4_v41_prof) {   /* 草稿这几位 vs 主模型自己的几位 —— 看是"接近但不同"还是"完全不搭" */
-                    fprintf(stderr, " | 草稿");
+                    fprintf(stderr, " | 초안");
                     for (uint32_t i = 0; i < k; i++) fprintf(stderr, " %d", batch[i + 1u]);
-                    fprintf(stderr, " | 主模型");
+                    fprintf(stderr, " | 기본 모델");
                     for (uint32_t i = 0; i < nb; i++) fprintf(stderr, " %d", want[i]);
                 }
                 fprintf(stderr, "\n");
@@ -391,21 +391,21 @@ int ds4_engine_v41_generate_argmax(ds4_engine *e, const int *prompt, int n_promp
         }
         if (draft_inflight && draft_r == 1) (void)v41_draft_wait(&dr);   /* 收尾: 最后一轮发了草稿但循环停了(emit 返回非零等), 等它完再释放 */
         if (spec_rounds) {
-            fprintf(stderr, "\n[v41] DSpark: %u 轮(调度器判亏本歇了 %u 次), 平均接受 %.2f/%u 位; 直方图",
+            fprintf(stderr, "\n[v41] DSpark: %u라운드(스케줄러가 효율 부족으로 %u회 건너뜀), 평균 수락 %.2f/%u토큰; 히스토그램",
                     spec_rounds, spec_skipped, (double)spec_acc / spec_rounds, dr.block);
             for (uint32_t i = 0; i <= dr.block; i++) fprintf(stderr, " %u:%u", i, spec_hist[i]);
             const double R = (double)spec_rounds, ea = 1.0 + (double)spec_acc / R;
             const double per = (ms_draft + ms_snap + ms_verify + ms_argmax) / R;
-            fprintf(stderr, "\n[v41] 一轮 %.1f ms = 草稿 %.1f + 快照回滚 %.1f + 验证 %.1f + argmax %.1f"
-                            "; 产出 %.2f token ⇒ %.1f ms/token\n",
+            fprintf(stderr, "\n[v41] 라운드당 %.1f ms = 초안 %.1f + 스냅샷 롤백 %.1f + 검증 %.1f + argmax %.1f"
+                            "; 생성 %.2f토큰 ⇒ %.1f ms/token\n",
                     per, ms_draft / R, ms_snap / R, ms_verify / R, ms_argmax / R, ea, per / ea);
             {   /* 一直打(不只 prof): prof 模式自带逐段同步会把空隙量歪; 这一行只在投机轮数 > 0 时出, 一条请求一行 */
                 double bp = 0, bl = 0, pb = 0, pe = 0, pc = 0, pa = 0, tc = 0; uint32_t bn = 0, nc = 0;
                 v41_graph_batch_host(&st, &bp, &bl, &bn); v41_graph_batch_prep(&st, &pb, &pe, &pc, &pa); v41_graph_capture_cost(&st, &tc, &nc);
                 const double gs = dr.gsteps ? (double)dr.gsteps : 1.0, bd = bn ? (double)bn : 1.0;
-                fprintf(stderr, "[v41] 主机空隙/轮: 验证完→草稿图发出 %.2f ms(含 写槽 %.3f + cudaGraphLaunch(草稿图, 走图 %u 轮) %.2f; 其余 = 接受/回滚/emit)"
-                                " | 草稿完→验证图发出 %.2f ms(含 起手 %.2f = 写槽 %.3f + engram 提交 %.3f + 图校验 %.3f + 置位 %.3f; cudaGraphLaunch %.2f); 样本 %u/%u 轮"
-                                " | 捕获(一次性, 已摊在上面两项里): 验证图 %u 次共 %.0f ms, 草稿图 %u 次共 %.0f ms\n",
+                fprintf(stderr, "[v41] 라운드당 호스트 지연: 검증 완료→초안 그래프 실행 %.2f ms(슬롯 기록 %.3f + cudaGraphLaunch(초안 그래프, %u라운드) %.2f 포함; 나머지는 수락/롤백/출력)"
+                                " | 초안 완료→검증 그래프 실행 %.2f ms(준비 %.2f = 슬롯 기록 %.3f + Engram 제출 %.3f + 그래프 확인 %.3f + 플래그 설정 %.3f; cudaGraphLaunch %.2f 포함); 표본 %u/%u라운드"
+                                " | 그래프 캡처(1회성, 위 시간에 포함): 검증 그래프 %u회 합계 %.0f ms, 초안 그래프 %u회 합계 %.0f ms\n",
                         h_vdn ? h_vd / h_vdn * 1e3 : 0.0, dr.h_slots / gs * 1e3, dr.gsteps, dr.h_launch / gs * 1e3,
                         h_dvn ? h_dv / h_dvn * 1e3 : 0.0, bp / bd * 1e3, pb / bd * 1e3, pe / bd * 1e3, pc / bd * 1e3, pa / bd * 1e3, bl / bd * 1e3, h_vdn, h_dvn,
                         nc, tc * 1e3, dr.gcaps, dr.h_capture * 1e3);
@@ -425,6 +425,6 @@ int ds4_engine_v41_generate_argmax(ds4_engine *e, const int *prompt, int n_promp
 #else
 int ds4_engine_v41_generate_argmax(ds4_engine *e, const int *prompt, int n_prompt, int n_predict, ds4_v41_emit_fn emit, void *ud) {
     (void)e; (void)prompt; (void)n_prompt; (void)n_predict; (void)emit; (void)ud;
-    fprintf(stderr, "ds4: V4.1 只有 GPU 路\n"); return 1;
+    fprintf(stderr, "ds4: V4.1은 GPU 경로만 지원합니다\n"); return 1;
 }
 #endif

@@ -55,7 +55,7 @@ static void v41_moe_uniq_probe(ds4_v41_state *st, uint32_t il, uint32_t topk, co
             uint32_t ne = 0, mx = 0, items32 = 0, items64 = 0, items128 = 0;
             for (uint32_t i = 0; i < ns; i++) if (sb[i] >= 0 && sb[i] < 1024) cnt[sb[i]]++;
             for (uint32_t e = 0; e < 1024u; e++) if (cnt[e]) { ne++; if (cnt[e] > mx) mx = cnt[e]; items32 += (cnt[e] + 31u) / 32u; items64 += (cnt[e] + 63u) / 64u; items128 += (cnt[e] + 127u) / 128u; }
-            fprintf(stderr, "[%s] L%02u n=%u: 有 token 的专家 %u, 最大 %u 个 token, 工作项 BN32 %u / BN64 %u / BN128 %u\n", tag, il, st->n, ne, mx, items32, items64, items128);
+            fprintf(stderr, "[%s] L%02u n=%u: 토큰을 처리하는 전문가 %u개, 최대 %u토큰, 작업 항목 BN32 %u / BN64 %u / BN128 %u\n", tag, il, st->n, ne, mx, items32, items64, items128);
             /* 首块的逐专家计数落盘(/tmp/v41_route_Lnn_nNNNN.txt, 一行一个专家): 给 gguf-tools/bench/v41_vq_prefill_mma_bench.cu 当真路由用 */
             if (st->pos0 == 0u) {
                 char p[96]; snprintf(p, sizeof p, "/tmp/v41_route_L%02u_n%u.txt", il, st->n);
@@ -68,7 +68,7 @@ static void v41_moe_uniq_probe(ds4_v41_state *st, uint32_t il, uint32_t topk, co
     }
     if (!ds4_gpu_synchronize() || !ds4_gpu_tensor_read(st->sel, 0, s, (uint64_t)ns * 4)) return;
     for (uint32_t i = 0; i < ns; i++) { uint32_t j = 0; while (j < i && s[j] != s[i]) j++; if (j == i) uniq++; }
-    fprintf(stderr, "[%s] L%02u n=%u: 唯一专家 %u / %u\n", tag, il, st->n, uniq, ns);
+    fprintf(stderr, "[%s] L%02u n=%u: 고유 전문가 %u / %u\n", tag, il, st->n, uniq, ns);
 }
 
 /* MoE(官方 MoE.forward): 路由 f32 → routed(VQ) + shared(fp4) → bf16 */
@@ -162,7 +162,7 @@ static void v41_nan_scan(const ds4_v41_state *st, uint32_t il) {
     if (ds4_gpu_tensor_read(st->hc, 0, buf, cnt * 4)) {
         uint64_t bad = 0, first = 0;
         for (uint64_t i = 0; i < cnt; i++) if (!isfinite(buf[i])) { if (!bad) first = i; bad++; }
-        if (bad) fprintf(stderr, "\n[v41-prof] ★L%02u 后 hc 有 %llu 个非有限值, 首个在 token %llu 路 %llu★\n", il, (unsigned long long)bad,
+        if (bad) fprintf(stderr, "\n[v41-prof] 경고: L%02u 이후 hc에서 유한하지 않은 값 %llu개 발생, 첫 위치 토큰 %llu, 경로 %llu\n", il, (unsigned long long)bad,
                          (unsigned long long)(first / ((uint64_t)DS4_N_HC * DS4_N_EMBD)), (unsigned long long)((first / DS4_N_EMBD) % DS4_N_HC));
     }
     free(buf);
@@ -242,7 +242,7 @@ bool v41_spec_snapshot(ds4_v41_state *st, uint32_t n) {
     const uint64_t rowb = (uint64_t)DS4_N_HEAD_DIM * 4;
     const uint32_t nmax = DS4_MTP_MAX_BLOCK + 1u;   /* 验证批 = 1 个已确认位 + 最多 block 个草稿位 */
     bool ok = true;
-    if (!n || n > nmax) { fprintf(stderr, "ds4: V4.1 投机快照批 %u 超上限 %u\n", n, nmax); return false; }
+    if (!n || n > nmax) { fprintf(stderr, "ds4: V4.1 추측 디코드 스냅샷 배치 %u가 상한 %u를 초과했습니다\n", n, nmax); return false; }
     /* 存的是"环里即将被本批第 i 行盖掉的那一格", 按批内行号 i 排 ⇒ 还原区间正好是 [keep, n)。 */
     for (uint32_t il = 0; il < DS4_N_LAYER && ok; il++) {
         if (!st->snap_win[il]) st->snap_win[il] = v41_alloc((uint64_t)nmax * rowb, &ok);
@@ -322,11 +322,11 @@ bool v41_forward_body(ds4_engine *e, ds4_v41_state *st) {
         ok = v41_layer(e, st, il);
         if (ok && (g_ds4_v41_prof || n >= 64u) && ds4_gpu_flush_commands() == 0) ok = false;   /* 解码不逐层同步(省 40 次停等), 查速度/大块才同步 */
         if (g_ds4_v41_prof) { const double tn = now_sec(); lt[il] = tn - tprev; if (ok) v41_nan_scan(st, il); tprev = now_sec(); }
-        if (n >= 64u) fprintf(stderr, "[v41] pos %u+%u L%02u %s %.1fs\r", st->pos0, n, il, ok ? "ok" : "★失败★", now_sec() - t0);
+        if (n >= 64u) fprintf(stderr, "[v41] pos %u+%u L%02u %s %.1fs\r", st->pos0, n, il, ok ? "ok" : "실패", now_sec() - t0);
         if (ok && st->stop_early) break;   /* 反修钩子取完料: 余下层与出口不算 */
     }
     if (n >= 64u) fputc('\n', stderr);
-    if (!ok) { fprintf(stderr, "ds4: V4.1 前向失败(pos0 %u n %u)\n", st->pos0, n); return false; }
+    if (!ok) { fprintf(stderr, "ds4: V4.1 순방향 계산 실패(pos0 %u n %u)\n", st->pos0, n); return false; }
     if (st->stop_early) return true;   /* 位置照常推进(调用方做), 不出 logits */
     /* 出口: h = hc_pre(hc, pre_mix) → norm → head(f32 logits) */
     if (!ds4_gpu_v41_hc_pre_tensor(st->x, st->hc, st->pre_mix, E, DS4_N_HC, n)) return false;
@@ -339,16 +339,16 @@ bool v41_forward_body(ds4_engine *e, ds4_v41_state *st) {
         if (!v41_tproj(&e->model, st->logits, e->weights.output, E, DS4_N_VOCAB, st->xlast, 1, 0)) return false;
         st->last_logit_row = 0;
     } else {
-        if (n > st->logits_rows) { fprintf(stderr, "ds4: V4.1 出口要 %u 行 logits, 缓冲只开了 %u 行\n", n, st->logits_rows); return false; }
+        if (n > st->logits_rows) { fprintf(stderr, "ds4: V4.1 출력에 logits %u행이 필요하지만 버퍼는 %u행만 할당됐습니다\n", n, st->logits_rows); return false; }
         if (!v41_tproj(&e->model, st->logits, e->weights.output, E, DS4_N_VOCAB, st->xn, n, 0)) return false;
         st->last_logit_row = n - 1u;
     }
     if (g_ds4_v41_prof) {   /* 逐层毫秒: 一眼看出哪层在吃时间(engram 层 L1/L14, 源层 L2/8/14/20, 候选层 L20) */
         if (ds4_gpu_flush_commands() == 0) return false;
         lt[DS4_N_LAYER] = now_sec() - tprev;
-        fprintf(stderr, "[v41-prof] pos %u+%u 总 %.1f ms | 层(ms):", st->pos0, n, (now_sec() - t0) * 1e3);
+        fprintf(stderr, "[v41-prof] 위치 %u+%u 총 %.1f ms | 레이어(ms):", st->pos0, n, (now_sec() - t0) * 1e3);
         for (uint32_t il = 0; il < DS4_N_LAYER; il++) fprintf(stderr, " %.1f", lt[il] * 1e3);
-        fprintf(stderr, " | 出口 %.1f\n", lt[DS4_N_LAYER] * 1e3);
+        fprintf(stderr, " | 출력 %.1f\n", lt[DS4_N_LAYER] * 1e3);
     }
     return true;
 }
@@ -370,8 +370,8 @@ bool v41_prefill_chunk(ds4_engine *e, ds4_v41_state *st, const int32_t *prompt, 
 }
 
 bool v41_forward(ds4_engine *e, ds4_v41_state *st, const int32_t *ids, uint32_t n) {
-    if (n == 0 || n > st->cap_tok) { fprintf(stderr, "ds4: V4.1 前向块 %u 超 cap %u\n", n, st->cap_tok); return false; }
-    if (st->n_past + n > st->ctx) { fprintf(stderr, "ds4: V4.1 上下文满(%u+%u > %u)\n", st->n_past, n, st->ctx); return false; }
+    if (n == 0 || n > st->cap_tok) { fprintf(stderr, "ds4: V4.1 순방향 블록 %u가 한도 %u를 초과했습니다\n", n, st->cap_tok); return false; }
+    if (st->n_past + n > st->ctx) { fprintf(stderr, "ds4: V4.1 컨텍스트 한도 도달(%u+%u > %u)\n", st->n_past, n, st->ctx); return false; }
     st->n = n; st->pos0 = st->n_past; st->idx_owner = -1; st->cand_owner = -1; st->idx_topk = 0; st->idx_ratio = 0; st->stop_early = 0;
     st->graph = 0;
     memcpy(st->hist + st->pos0, ids, (size_t)n * 4);

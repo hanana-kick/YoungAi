@@ -27,7 +27,7 @@ static bool v41_small_matmul(const ds4_model *m, ds4_gpu_tensor *out, const ds4_
         return ds4_gpu_v41_matmul_bf16_tensor(out, m->map, m->size, w->abs_offset, in_dim, out_dim, x, n) != 0;
     if (w->type == DS4_GGT_F32)
         return ds4_gpu_v41_matmul_f32_tensor(out, m->map, m->size, w->abs_offset, in_dim, out_dim, x, n) != 0;
-    fprintf(stderr, "ds4: [v41] 草稿器: %.*s 的类型 %u 不是 f32/bf16\n", (int)w->name.len, w->name.ptr, w->type);
+    fprintf(stderr, "ds4: [v41] 초안 모델: %.*s의 타입 %u가 f32/bf16이 아닙니다\n", (int)w->name.len, w->name.ptr, w->type);
     return false;
 }
 
@@ -44,7 +44,7 @@ static bool v41_draft_exp_off(ds4_engine *e, ds4_v41_draft *dr) {
         uint64_t *off = xmalloc((size_t)3u * v->mtp_experts * 8u);
         for (uint32_t i = 0; i < v->mtp_experts; i++) {
             const ds4_tensor *g = e->weights.mtp.exp_gate[T][i], *u = e->weights.mtp.exp_up[T][i], *d = e->weights.mtp.exp_down[T][i];
-            if (!g || !u || !d) { free(off); fprintf(stderr, "ds4: [v41] 草稿塔 %u 专家 %u 张量缺失\n", T, i); return false; }
+            if (!g || !u || !d) { free(off); fprintf(stderr, "ds4: [v41] 초안 모델 타워 %u의 전문가 %u 텐서 누락\n", T, i); return false; }
             off[i] = g->abs_offset; off[v->mtp_experts + i] = u->abs_offset; off[2u * v->mtp_experts + i] = d->abs_offset;
         }
         dr->exp_off[T] = off;
@@ -85,8 +85,8 @@ static void v41_draft_byte_report(ds4_engine *e, const ds4_v41_draft *dr) {
     const double act = per_exp * v->mtp_used * v->mtp_towers * dr->block;
     const uint64_t head = (w->output ? w->output->bytes : 0) + (w->mtp.main_proj ? w->mtp.main_proj->bytes : 0);
     const double G = 1024.0 * 1024.0 * 1024.0;
-    fprintf(stderr, "ds4: [v41] 草稿器字节账: 密集(三塔) %.2f GB + 激活专家(最坏 %u×%u×%u 份) %.2f GB"
-                    " + 出口头/main_proj %.2f GB = **%.2f GB/块**  [专家全量 %.2f GB]\n",
+    fprintf(stderr, "ds4: [v41] 초안 모델 메모리: 밀집(3개 타워) %.2f GB + 활성 전문가(최악 %u×%u×%u개) %.2f GB"
+                    " + 출력 헤드/main_proj %.2f GB = **블록당 %.2f GB** [전체 전문가 %.2f GB]\n",
             (double)dense / G, v->mtp_towers, v->mtp_used, dr->block, act / G, (double)head / G,
             ((double)dense + act + (double)head) / G, (double)exp_all / G);
 }
@@ -96,7 +96,7 @@ bool v41_draft_alloc(ds4_engine *e, ds4_v41_draft *dr) {
     memset(dr, 0, sizeof *dr);
     if (!v->mtp_towers || !v->mtp_block || !v->n_mtp_target) return false;   /* 元数据不全 = 投机路不武装 */
     if (!e->weights.mtp.main_proj || !e->weights.mtp.markov_embd || !e->weights.mtp.confidence) return false;
-    /* 三塔专家两种盘上形态都能武装(2026-09-20): 逐专家 fp4x32 走 cuda_v41_draft.inc.cu 的 dense MoE 核, VQ blob 走主干的
+    /* 三塔专家两种盘上形态都能武装(2026-09-20): 전문가별 fp4x32 走 cuda_v41_draft.inc.cu 的 dense MoE 核, VQ blob 走主干的
      * 解码即乘核(v41_draft_exp_off 按形态分流)。09-19~20 之间 blob 形态曾被这里拦成"不武装"(当时草稿器只有逐专家那条核)。 */
     const uint32_t E = DS4_N_EMBD, HC = DS4_N_HC, HD = DS4_N_HEAD_DIM, NH = DS4_N_HEAD, Q = DS4_N_LORA_Q, SWA = DS4_N_SWA;
     const uint32_t FF = DS4_N_FF_EXP, R = v->mtp_markov_rank;
@@ -168,8 +168,8 @@ bool v41_draft_alloc(ds4_engine *e, ds4_v41_draft *dr) {
     dr->block = (g_ds4_v41_block && g_ds4_v41_block <= B) ? g_ds4_v41_block : B;
     if (g_ds4_v41_draft_amp && !v41_draft_amp_mount(dr, g_ds4_v41_draft_amp)) { v41_draft_free(dr); return false; }   /* 文件 = 出口对齐边车; 目录 = 蒸馏的件(core_v41_draft_amp.c) */
     dr->ready = 1;
-    fprintf(stderr, "ds4: [v41] DSpark 草稿器已武装: %u 塔 × %u 专家 top-%u(%s), 一块 %u 位, 目标层",
-            v->mtp_towers, v->mtp_experts, v->mtp_used, e->weights.mtp.exps_vq[0] ? "VQ blob" : "逐专家 fp4x32", B);
+    fprintf(stderr, "ds4: [v41] DSpark 초안 모델 활성화: 타워 %u개 × 전문가 %u개 top-%u(%s), 블록당 %u토큰, 대상 레이어",
+            v->mtp_towers, v->mtp_experts, v->mtp_used, e->weights.mtp.exps_vq[0] ? "VQ blob" : "전문가별 fp4x32", B);
     for (uint32_t i = 0; i < v->n_mtp_target; i++) fprintf(stderr, " L%02d", (int)v->mtp_target[i]);
     fprintf(stderr, "\n");
     v41_draft_byte_report(e, dr);
@@ -178,7 +178,7 @@ bool v41_draft_alloc(ds4_engine *e, ds4_v41_draft *dr) {
 
 void v41_draft_free(ds4_v41_draft *dr) {
     ds4_v41_state *st = &dr->st;
-    if (dr->gsteps || dr->gcaps) fprintf(stderr, "ds4: [graph] 草稿一轮走图 %u 次, 捕获 %u 次\n", dr->gsteps, dr->gcaps);
+    if (dr->gsteps || dr->gcaps) fprintf(stderr, "ds4: [graph] 초안 라운드당 그래프 실행 %u회, 캡처 %u회\n", dr->gsteps, dr->gcaps);
     for (uint32_t r = 0; r <= DS4_V41_DRAFT_GROWS; r++) { if (dr->gexec[r]) ds4_gpu_decode_graph_free(dr->gexec[r]); dr->gexec[r] = NULL; }
     ds4_gpu_host_free(dr->p_tok); ds4_gpu_host_free(dr->p_bpos); ds4_gpu_host_free(dr->p_wpos); ds4_gpu_host_free(dr->p_first);
     ds4_gpu_host_free(dr->p_ids); ds4_gpu_host_free(dr->p_conf); ds4_gpu_host_free(dr->p_onehot);
@@ -299,14 +299,14 @@ static bool v41_draft_block(ds4_engine *e, ds4_v41_draft *dr, uint32_t pos0) {
  * ★这三步失败必须出声★(2026-09-18 实撞): 以前静默 return false, 调用方只当"这轮不出草稿", 于是一个缓冲区太小(窗口的块区只留了
  * block+1 行, 补 79 行直接越界)让投机整段静默失效 —— 门上"投机 == 纯解码"还是绿的(一轮都没投机当然逐字节同), 只有 t/s 露馅。 */
 static bool v41_draft_fill(ds4_engine *e, ds4_v41_state *main_st, ds4_v41_draft *dr, uint32_t rows) {
-    if (!v41_draft_put(dr, dr->st.pos, 0, dr->p_wpos, (uint64_t)rows * 4)) { fprintf(stderr, "ds4: [v41] 草稿器: 写 %u 行窗口位置失败\n", rows); return false; }
-    if (dr->cap_mode && !ds4_gpu_tensor_write_zerocopy(dr->firstd, 0, dr->p_first, 4)) { fprintf(stderr, "ds4: [v41] 草稿器: 写起始行失败\n"); return false; }
+    if (!v41_draft_put(dr, dr->st.pos, 0, dr->p_wpos, (uint64_t)rows * 4)) { fprintf(stderr, "ds4: [v41] 초안 모델: 윈도 위치 %u행 기록 실패\n", rows); return false; }
+    if (dr->cap_mode && !ds4_gpu_tensor_write_zerocopy(dr->firstd, 0, dr->p_first, 4)) { fprintf(stderr, "ds4: [v41] 초안 모델: 시작 행 기록 실패\n"); return false; }
     if (!ds4_gpu_v41_ring_rows_tensor(dr->mainh_lin, main_st->mainh, g_ds4_v41.n_mtp_target * DS4_N_EMBD, main_st->mainh_cap,
                                       (uint32_t)dr->p_first[0], rows, dr->cap_mode ? dr->firstd : NULL)) {
-        fprintf(stderr, "ds4: [v41] 草稿器: 从 main_hidden 环取 %u 行失败\n", rows); return false;
+        fprintf(stderr, "ds4: [v41] 초안 모델: main_hidden 링에서 %u행 읽기 실패\n", rows); return false;
     }
-    if (!v41_draft_main_x(e, dr, rows)) { fprintf(stderr, "ds4: [v41] 草稿器: main_proj/main_norm %u 行失败\n", rows); return false; }
-    if (!v41_draft_push_main(e, &dr->st, rows)) { fprintf(stderr, "ds4: [v41] 草稿器: 推 %u 行进三塔窗口失败\n", rows); return false; }
+    if (!v41_draft_main_x(e, dr, rows)) { fprintf(stderr, "ds4: [v41] 초안 모델: main_proj/main_norm %u행 처리 실패\n", rows); return false; }
+    if (!v41_draft_push_main(e, &dr->st, rows)) { fprintf(stderr, "ds4: [v41] 초안 모델: %u행을 3개 타워 윈도로 전달하는 데 실패\n", rows); return false; }
     /* 块注意力的 main_x 只用最后一行(官方 forward_spec 的 main_hidden 是当前这一位) */
     if (rows > 1 && !ds4_gpu_tensor_copy(dr->st.main_x, 0, dr->st.main_x, (uint64_t)(rows - 1u) * DS4_N_EMBD * 4,
                                          (uint64_t)DS4_N_EMBD * 4)) return false;
@@ -327,7 +327,7 @@ static bool v41_draft_graph_round(ds4_engine *e, ds4_v41_state *main_st, ds4_v41
     const uint64_t gen = ds4_gpu_v41_scratch_generation();
     if (dr->gexec[rows] && dr->ggen[rows] != gen) {   /* 暂存换过指针 ⇒ 所有草稿图作废(它们烤死的都是捕获那一刻的指针) */
         for (uint32_t r = 0; r <= DS4_V41_DRAFT_GROWS; r++) { if (dr->gexec[r]) ds4_gpu_decode_graph_free(dr->gexec[r]); dr->gexec[r] = NULL; }
-        fprintf(stderr, "ds4: [graph] 草稿图: 后端暂存换过指针, 全部重捕获\n");
+        fprintf(stderr, "ds4: [graph] 초안 그래프: 백엔드 임시 버퍼 포인터가 변경되어 전체 다시 캡처\n");
     }
     if (!dr->gexec[rows]) {
         const double tc0 = now_sec();
@@ -340,12 +340,12 @@ static bool v41_draft_graph_round(ds4_engine *e, ds4_v41_state *main_st, ds4_v41
         void *exec = ds4_gpu_decode_graph_capture_end();   /* 不管 ok 与否都要收捕获, 否则流一直停在捕获态 */
         if (!ok || !exec) {
             if (exec) ds4_gpu_decode_graph_free(exec);
-            fprintf(stderr, "ds4: ★[graph] 草稿图(补 %u 行)捕获失败, 草稿一律直发★\n", rows);
+            fprintf(stderr, "ds4: 경고: [graph] 초안 그래프(추가 %u행) 캡처 실패, 초안 계산을 직접 실행으로 전환\n", rows);
             dr->graph_off = 1;
             return false;
         }
         dr->gexec[rows] = exec; dr->ggen[rows] = gen; dr->gcaps++; dr->h_capture += now_sec() - tc0;
-        fprintf(stderr, "ds4: [graph] 草稿图(补 %u 行)已捕获\n", rows);
+        fprintf(stderr, "ds4: [graph] 초안 그래프(추가 %u행) 캡처 완료\n", rows);
     }
     /* 重放: 图读的是重放那一刻槽里的值 ⇒ 先按本轮填(捕获那趟 gpu_round 已填过, 重填同值无害)。
      * ★只发不等(2026-10-07)★: 等与读回在 v41_draft_wait —— 调用方把上一轮的接受 token emit(fwrite+fflush)压在草稿跑着的时候做。 */
@@ -373,7 +373,7 @@ bool v41_draft_wait(ds4_v41_draft *dr) {
 int v41_draft_launch(ds4_engine *e, ds4_v41_state *main_st, ds4_v41_draft *dr, int32_t tok, uint32_t pos_main) {
     if (!dr->ready || !main_st->mainh) return 0;
     if (main_st->mainh_end != (int64_t)pos_main) {   /* 主前向没把这一位写进环(CED 跳过/早停)= 料不齐, 不出草稿 */
-        fprintf(stderr, "ds4: [v41] 草稿器: main_hidden 环末位 %lld ≠ pos_main %u, 本轮不出草稿\n", (long long)main_st->mainh_end, pos_main);
+        fprintf(stderr, "ds4: [v41] 초안 모델: main_hidden 링의 마지막 위치 %lld ≠ pos_main %u, 이번 라운드에서 초안 생성 생략\n", (long long)main_st->mainh_end, pos_main);
         return 0;
     }
     /* ★补窗口: (win_end, pos_main] 缺多少补多少★ —— 歇过的轮、走过 graph 的步都在这里补齐; 缺口超过窗宽就整窗重建。
@@ -386,7 +386,7 @@ int v41_draft_launch(ds4_engine *e, ds4_v41_state *main_st, ds4_v41_draft *dr, i
     if (rows) {
         const int64_t avail_first = main_st->mainh_end - (int64_t)main_st->mainh_n + 1;
         if (first < avail_first) {
-            fprintf(stderr, "ds4: [v41] 草稿器: 窗口要补 %lld..%u, 环里连续段只从 %lld 起(%u 行), 本轮不出草稿\n",
+            fprintf(stderr, "ds4: [v41] 초안 모델: 윈도 추가 범위 %lld..%u, 링의 연속 구간은 %lld부터(%u행), 이번 라운드에서 초안 생성 생략\n",
                     (long long)first, pos_main, (long long)avail_first, main_st->mainh_n);
             return 0;
         }

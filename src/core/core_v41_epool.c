@@ -63,7 +63,7 @@ static void v41_epool_init(void) {
         g_epool.nth = t + 1u;
     }
     g_epool.ready = g_epool.nth > 0;
-    if (!g_epool.ready) fprintf(stderr, "ds4: [v41] engram 线程池起不来, 退回单线程同步取行(慢但正确)\n");
+    if (!g_epool.ready) fprintf(stderr, "ds4: [v41] Engram 스레드 풀 시작 실패; 단일 스레드 동기 읽기로 전환합니다(느리지만 결과 동일)\n");
 }
 
 uint32_t v41_epool_threads(void) {
