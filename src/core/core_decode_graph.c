@@ -68,12 +68,12 @@ void v41_graph_free(ds4_v41_state *st) {
     if (g->am) ds4_gpu_tensor_free(g->am);
     if (g->steps) {
         const double wall = (g->t_gap + g->t_prep + g->t_launch + g->t_sync) / g->steps;   /* 稳态每步壁钟(不含首步直发与捕获) */
-        fprintf(stderr, "ds4: [graph] 走图解了 %u 步, 捕获 %u 次(其中暂存换指针重捕 %u 次); 每步主机: 上步 sync→本步进来 %.0f us, 起手+取行提交 %.0f us, "
-                        "cudaGraphLaunch %.0f us, 等图 %.2f ms ⇒ ★稳态 %.2f ms/步 = %.2f t/s★\n", g->steps, g->captures, g->regrow,
+        fprintf(stderr, "ds4: [graph] 그래프 디코드 %u단계, 캡처 %u회(임시 버퍼 포인터 변경으로 재캡처 %u회); 단계별 호스트: 이전 동기화→현재 단계 %.0f us, 준비+행 읽기 제출 %.0f us, "
+                        "cudaGraphLaunch %.0f us, 그래프 대기 %.2f ms ⇒ 정상 상태 %.2f ms/단계 = %.2f tok/s\n", g->steps, g->captures, g->regrow,
                 g->t_gap / g->steps * 1e6, g->t_prep / g->steps * 1e6, g->t_launch / g->steps * 1e6, g->t_sync / g->steps * 1e3,
                 wall * 1e3, 1.0 / wall);
     }
-    if (g->bsteps || g->k0steps) fprintf(stderr, "ds4: [graph] 投机验证批走图 %u 轮, 草稿白跑(k=0)后走 n=1 图 %u 步(不进稳态账)\n", g->bsteps, g->k0steps);
+    if (g->bsteps || g->k0steps) fprintf(stderr, "ds4: [graph] 추측 검증 배치 그래프 %u라운드, 유효한 초안 없음(k=0) 이후 n=1 그래프 %u단계(정상 상태 집계 제외)\n", g->bsteps, g->k0steps);
     free(g); st->dgraph = NULL;
 }
 
@@ -197,7 +197,7 @@ static bool dg_capture(ds4_engine *e, ds4_v41_state *st, uint32_t n) {
     g->captures++;
     in->gen = ds4_gpu_v41_scratch_generation();   /* 捕获收完再记: 捕获前的 attn_scratch_prepare 自己就可能长一次 */
     in->idx_gen = st->iscap_gen;                  /* 同上: 上面那次 index_scratch_prepare 可能换了 iscore/cand 的指针 */
-    fprintf(stderr, "ds4: [graph] %u 行的图: 位置桶 [%u, %u]\n", n, in->lo, in->cap);
+    fprintf(stderr, "ds4: [graph] %u행 그래프: 위치 버킷 [%u, %u]\n", n, in->lo, in->cap);
     return true;
 }
 
@@ -212,7 +212,7 @@ static bool dg_direct_step(ds4_engine *e, ds4_v41_state *st, int32_t tok, int32_
 static void dg_invalidate(decode_graph *g, const char *why) {
     int any = 0;
     for (uint32_t n = 0; n < DGRAPH_NMAX; n++) if (g->g[n].exec) { ds4_gpu_decode_graph_free(g->g[n].exec); g->g[n].exec = NULL; any = 1; }
-    if (any) { fprintf(stderr, "ds4: [graph] %s, 图作废, 重捕获\n", why); g->regrow++; }
+    if (any) { fprintf(stderr, "ds4: [graph] %s: 기존 그래프를 폐기하고 다시 캡처합니다\n", why); g->regrow++; }
 }
 
 /* 一步拆成"发"与"等"两半(2026-09-18 主机侧分账): 调用方在 launch 与 wait 之间去 emit 当前 token ——
@@ -222,7 +222,7 @@ static bool dg_launch(ds4_engine *e, ds4_v41_state *st, const int32_t *ids, uint
     if (!dg_alloc(st)) return false;
     decode_graph *g = (decode_graph *)st->dgraph;
     dg_inst *in = &g->g[n];
-    if (st->n_past + n > st->ctx) { fprintf(stderr, "ds4: V4.1 上下文满(%u+%u > %u)\n", st->n_past, n, st->ctx); return false; }
+    if (st->n_past + n > st->ctx) { fprintf(stderr, "ds4: V4.1 컨텍스트 한도 도달(%u+%u > %u)\n", st->n_past, n, st->ctx); return false; }
     const double t0 = now_sec();
     g->cur_pure = n == 1u && pure;
     /* 步边界的账只记"上一步也是纯解码步"的间隔: 中间隔着验证批或草稿的, 上一步 sync 时已把 t_last_sync 清零 */
@@ -237,22 +237,22 @@ static bool dg_launch(ds4_engine *e, ds4_v41_state *st, const int32_t *ids, uint
     /* ★暂存换过指针 ⇒ 图作废, 重捕获★(2026-09-19): 投机验证批(直发, n≤6)让 attn/hc/VQ 的暂存扩容, 图里烤死的旧指针
      * 指向已释放页 —— 这就是 09-18 第三版"歇轮走图"2K 崩 illegal memory access 的真因(定罪见 cuda_v41_1.inc.cu v41_grow)。
      * 代号是全局的: 变了所有 n 的图一起作废。 */
-    if (in->exec && in->gen != ds4_gpu_v41_scratch_generation()) dg_invalidate(g, "后端暂存换过指针");
+    if (in->exec && in->gen != ds4_gpu_v41_scratch_generation()) dg_invalidate(g, "백엔드 임시 버퍼 포인터 변경");
     /* 同一个坑的另一半: 直发路(投机验证批/捕获失败重来)可能让索引草稿翻倍, iscore/cand 换了指针 */
-    if (in->exec && in->idx_gen != st->iscap_gen) dg_invalidate(g, "索引草稿长过");
+    if (in->exec && in->idx_gen != st->iscap_gen) dg_invalidate(g, "인덱스 초안 버퍼 확장");
     if (!in->exec || st->pos0 < in->lo || st->pos0 + n - 1u > in->cap) {
         const double tc0 = now_sec();
         const bool cap_ok = dg_capture(e, st, n);
         g->t_capture += now_sec() - tc0; g->n_capture++;   /* 捕获的主机耗时单记: 短跑里它把"起手"均值撑大(10-07 实撞: 4 次捕获摊成 1 ms/轮) */
         if (!cap_ok) {
             if (n == 1u) {
-                fprintf(stderr, "ds4: ★[graph] 捕获失败, 本条请求这一步与之后改走直发★\n");
+                fprintf(stderr, "ds4: 경고: [graph] 캡처 실패, 이 요청의 현재 및 이후 단계를 직접 실행으로 전환합니다\n");
                 g->n1_off = 1;
                 g->direct_pending = 1;   /* wait 里按直发把这一步跑完 */
                 g->pending_tok = ids[0]; g->cur_n = 1u;
                 return true;
             }
-            fprintf(stderr, "ds4: ★[graph] %u 行验证批捕获失败, 这一批与之后的验证批走直发(纯解码图照走)★\n", n);
+            fprintf(stderr, "ds4: 경고: [graph] %u행 검증 배치 캡처 실패, 현재 및 이후 검증 배치를 직접 실행합니다(일반 디코드 그래프 유지)\n", n);
             g->batch_off = 1;
             return false;   /* 没发出去, 主机状态由调用方的直发路重新起手 */
         }
@@ -295,7 +295,7 @@ static bool dg_wait(ds4_engine *e, ds4_v41_state *st, int32_t *next) {
     if (g->cur_pure) { g->t_sync += t3 - g->t_launched; g->t_last_sync = t3; }
     else g->t_last_sync = 0.0;   /* 验证批 / k=0 轮的步之后, 下一个纯解码步的"上步→本步"间隔不算(中间不是纯解码) */
     __sync_synchronize();
-    if (st->egraph_err || (!st->no_engram && v41_engram_graph_err(st))) { fprintf(stderr, "ds4: [graph] engram 取行失败(位置 %u)\n", st->pos0); return false; }
+    if (st->egraph_err || (!st->no_engram && v41_engram_graph_err(st))) { fprintf(stderr, "ds4: [graph] Engram 행 읽기 실패(위치 %u)\n", st->pos0); return false; }
     /* 每行 4 个 int: 采样路按"接受 ⇒ 草稿 / 拒绝 ⇒ 残差"拼, argmax 路取第 0 个(core_v41_sample.c) */
     v41_sample_pick(g->next, g->tokv, n, st->dev_sample, next);
     dg_advance(st, n);

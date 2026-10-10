@@ -50,7 +50,7 @@ void v41_load_metadata(const ds4_model *m) {
     /* ★上下文只从模型元数据来★(用户 2026-09-22 "不要任何写死的上下文, 上下文大小只有 1M 这一个选择"): 转换器把 HF config 的
      * max_position_embeddings 写成 deepseek4.context_length, 引擎只认这个键 —— 没有默认值、没有上限常量、没有 --ctx。 */
     const uint64_t ctx = v41_req_u64(m, "deepseek4.context_length");
-    if (ctx == 0 || ctx > UINT32_MAX) ds4_die("V4.1 deepseek4.context_length 不合法");
+    if (ctx == 0 || ctx > UINT32_MAX) ds4_die("V4.1 deepseek4.context_length 값이 유효하지 않습니다");
     v->ctx = (uint32_t)ctx;
     for (uint32_t il = 0; il < DS4_MAX_LAYER; il++) {
         v->kv_source_of[il] = -1; v->index_source_of[il] = -1; v->engram_index_of[il] = -1;
@@ -108,7 +108,7 @@ void v41_load_metadata(const ds4_model *m) {
                 v->mtp_target_slot[tids[i]] = (int16_t)i;
             }
         } else {
-            fprintf(stderr, "ds4: [v41] 这份 GGUF 带了三塔但没带 DSpark 运行参数(block_size/target_layers 等) ⇒ 投机解码不武装\n");
+            fprintf(stderr, "ds4: [v41] GGUF에 3개 타워가 있지만 DSpark 실행 매개변수(block_size/target_layers 등)가 없어 추측 디코드를 활성화하지 않습니다\n");
         }
     }
     v->candidate_source_layer = (int32_t)required_u32(m, "deepseek4.attention.candidate.source_layer");
@@ -137,12 +137,12 @@ void v41_load_metadata(const ds4_model *m) {
             snprintf(name, sizeof name, "%s", slash ? slash + 1 : v->engram_table_path[i]);
             const int w = snprintf(v->engram_table_path[i], sizeof v->engram_table_path[i], "%s/%s", g_v41_engram_dir, name);
             if (w < 0 || (size_t)w >= sizeof v->engram_table_path[i]) ds4_die("--engram-dir path too long");
-            fprintf(stderr, "ds4: engram 表 %u 用 %s(--engram-dir)\n", i, v->engram_table_path[i]);
+            fprintf(stderr, "ds4: Engram 테이블 %u는 %s를 사용합니다(--engram-dir)\n", i, v->engram_table_path[i]);
         }
         /* 表到第一次前向才打开; 加载要 2 分钟, 不在这里先说一声, 人要等到第一个请求失败才知道。
          * 只警告不停: --score-ids 的 no-engram 对拍口径本来就不读表。 */
         if (access(v->engram_table_path[i], R_OK) != 0)
-            fprintf(stderr, "ds4: ★engram 表打不开 %s, 第一个请求会失败 —— 用 --engram-dir 指向放官方分片的目录★\n", v->engram_table_path[i]);
+            fprintf(stderr, "ds4: 오류: Engram 테이블 %s를 열 수 없어 첫 요청이 실패합니다. --engram-dir로 공식 샤드 디렉터리를 지정하세요\n", v->engram_table_path[i]);
         snprintf(key, sizeof key, "deepseek4.engram.%u.weight_offset", i); v->engram_weight_off[i] = v41_req_u64(m, key);
         snprintf(key, sizeof key, "deepseek4.engram.%u.scale_offset", i);  v->engram_scale_off[i]  = v41_req_u64(m, key);
     }
@@ -156,7 +156,7 @@ void v41_load_metadata(const ds4_model *m) {
 
     int nk = 0, ni = 0;
     for (uint32_t il = 0; il < DS4_N_LAYER; il++) { nk += v->is_kv_source[il]; ni += v->is_index_source[il]; }
-    fprintf(stderr, "ds4: V4.1 接线: kv 源 %d 层 / indexer 源 %d 层 / 候选源 L%d(%d 块×%d) / engram %u 层 (表 %llu+%llu 行, 在盘)\n",
+    fprintf(stderr, "ds4: V4.1 구성: KV 소스 %d레이어 / 인덱서 소스 %d레이어 / 후보 소스 L%d(%d블록×%d) / Engram %u레이어(테이블 %llu+%llu행, 디스크 상주)\n",
             nk, ni, v->candidate_source_layer, v->candidate_topk_blocks, v->candidate_block_size, v->n_engram,
             (unsigned long long)(n > 0 ? v->engram_rows[0] : 0), (unsigned long long)(n > 1 ? v->engram_rows[1] : 0));
 }

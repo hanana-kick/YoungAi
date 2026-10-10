@@ -237,7 +237,7 @@ static int v41_vqg_optin(uint32_t cbb) {
     (void)cudaOccupancyMaxActiveBlocksPerMultiprocessor(&bg, v41_vqg_gateup_kernel<NBIT, V3, EXT, M>, (int)V41_VQG_THREADS, (size_t)cbb);
     (void)cudaOccupancyMaxActiveBlocksPerMultiprocessor(&bd, v41_vqg_down_kernel<NBIT, V3, EXT, M>, (int)V41_VQG_THREADS, (size_t)cbb);
     (void)cudaGetLastError();
-    fprintf(stderr, "ds4: [v41] VQ 分组核 M=%d(NBIT %d): %u 线程/block, 动态 shared %u KB; gateup %d 寄存器 ⇒ 每 SM %d block, down %d 寄存器 ⇒ %d block\n",
+    fprintf(stderr, "ds4: [v41] VQ 그룹 커널 M=%d(NBIT %d): 블록당 스레드 %u개, 동적 공유 메모리 %u KB; gateup 레지스터 %d개 ⇒ SM당 %d블록, down 레지스터 %d개 ⇒ %d블록\n",
             M, NBIT, V41_VQG_THREADS, cbb >> 10, fg.numRegs, bg, fd.numRegs, bd);
     return 1;
 }
@@ -248,7 +248,7 @@ static int v41_vqg_launch_gu(uint16_t *h, const uint8_t *blob, const int32_t *se
     const uint32_t rg = V41_VQG_WARPS * V41_VQG_ITERS_GU;
     v41_vqg_gateup_kernel<NBIT, V3, EXT, M><<<dim3((MID + rg - 1u) / rg, np), V41_VQG_THREADS, cbb, g_cur_stream>>>(
         h, blob, sel, xb, IN, MID, K, clamp, cbb, ord, np, mlo);
-    return cuda_ok(cudaGetLastError(), "v41 vq gateup(分组)");
+    return cuda_ok(cudaGetLastError(), "v41 VQ gateup(그룹)");
 }
 template <int NBIT, int V3, int EXT, int M>
 static int v41_vqg_launch_dn(float *part, const uint8_t *blob, const int32_t *sel, const uint16_t *h, uint32_t MID, uint32_t OUT, uint32_t K,
@@ -256,7 +256,7 @@ static int v41_vqg_launch_dn(float *part, const uint8_t *blob, const int32_t *se
     const uint32_t rd = V41_VQG_WARPS * V41_VQG_ITERS_DN;
     v41_vqg_down_kernel<NBIT, V3, EXT, M><<<dim3((OUT + rd - 1u) / rd, np), V41_VQG_THREADS, cbb, g_cur_stream>>>(
         part, blob, sel, (const uint32_t *)h, MID, OUT, K, cbb, gr, ord, np, mlo);
-    return cuda_ok(cudaGetLastError(), "v41 vq down(分组)");
+    return cuda_ok(cudaGetLastError(), "v41 VQ down(그룹)");
 }
 /* ★分组路的两道(先 gateup 后 down)★, 由 cuda_vq_decode.inc.cu 的 v41_vq_fused_moe_n 调: 逐对核(SORTED 实例, 只算 m=1 的对)
  * 与分组核(m≥2 的组按 m 分 M=2 / 4 / 6 三档)各发各的 block, 写的是不相交的 pair 槽。批大小 n_tok 定要发哪几档(m ≤ n_tok):

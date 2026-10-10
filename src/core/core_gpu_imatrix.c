@@ -151,7 +151,7 @@ bool metal_graph_eval_token_raw_swa(
                 if (f) fclose(f);
                 free(buf);
             }
-            fprintf(stderr, "ds4: [statedump] pos=%u 43 层状态已落 /tmp/statedump\n", pos);
+            fprintf(stderr, "ds4: [statedump] 위치=%u 43레이어 상태를 /tmp/statedump에 저장했습니다\n", pos);
         }
     }
 #endif
@@ -165,7 +165,7 @@ bool metal_graph_eval_token_raw_swa(
                 g->prelaunched_token = g->tok_next_pinned ? *g->tok_next_pinned : -1;
                 /* 对账: 本图实际消费的 token 必须等于喂进来的 token, 否则取槽链路有病, 立即报 */
                 if (g->tok_next_pinned && g->tok_next_pinned[1] != (int32_t)token)
-                    fprintf(stderr, "ds4: ★取槽错位★ pos=%u 喂 %d 图消费 %d(设备 argmax %d, launched=%d)\n",
+                    fprintf(stderr, "ds4: 슬롯 위치 불일치: pos=%u 입력 %d, 그래프 소비 %d(GPU argmax %d, launched=%d)\n",
                             pos, token, g->tok_next_pinned[1], g->tok_next_pinned[0], launched);
             }
         } else {

@@ -174,7 +174,7 @@ static int v41_indexer_score_mma_launch(ds4_gpu_tensor *score, const ds4_gpu_ten
                                         const ds4_gpu_tensor *cand_list, uint32_t cand_bs, uint32_t cand_cap, uint32_t n_tok, uint32_t pos0,
                                         uint32_t ng, uint32_t n_head, uint32_t dk, uint32_t ratio, const ds4_gpu_tensor *posd) {
     if ((n_head != 32u && n_head != 64u) || dk != 128u) {
-        fprintf(stderr, "ds4: [v41] indexer 张量核打分只编了 32/64 头 × 128 维(元数据 %u × %u)\n", n_head, dk); return 0; }
+        fprintf(stderr, "ds4: [v41] 인덱서 텐서 코어 점수 커널은 헤드 32/64개 × 128차원만 빌드됐습니다(메타데이터 %u × %u)\n", n_head, dk); return 0; }
     int8_t *qi = (int8_t *)v41_grow(&g_v41_idxq[g_cur_lane], (uint64_t)n_tok * v41_idxq_row_bytes(n_head), "v41 indexer q s8");
     if (!qi) return 0;
     int8_t *qe = qi + (uint64_t)n_tok * n_head * 128u;
@@ -189,8 +189,8 @@ static int v41_indexer_score_mma_launch(ds4_gpu_tensor *score, const ds4_gpu_ten
     if (tiles > 32u) tiles = 32u;
     const uint32_t gblocks = (warps + 8u * tiles - 1u) / (8u * tiles);
     static int s_once = 0;
-    if (!s_once) { s_once = 1; fprintf(stderr, "ds4: [v41] indexer 打分走张量核: 首发 n_tok %u ns %u 头 %u × %u 维, tiles %u, grid (%u, %u), SM %d\n", n_tok, ns, n_head, dk, tiles, n_tok, gblocks, s_sm); }
-    if (gblocks > 65535u) { fprintf(stderr, "ds4: [v41] indexer 张量核 grid.y %u 超 CUDA 硬顶(ns %u)\n", gblocks, ns); return 0; }   /* 1M 上下文 tiles=32 时 512 个 block; 真撞到就是形状变了 */
+    if (!s_once) { s_once = 1; fprintf(stderr, "ds4: [v41] 인덱서 텐서 코어 점수 계산: 최초 n_tok %u ns %u 헤드 %u × %u차원, 타일 %u, 그리드(%u, %u), SM %d\n", n_tok, ns, n_head, dk, tiles, n_tok, gblocks, s_sm); }
+    if (gblocks > 65535u) { fprintf(stderr, "ds4: [v41] 인덱서 텐서 코어의 grid.y %u가 CUDA 한도를 초과했습니다(ns %u)\n", gblocks, ns); return 0; }   /* 1M 上下文 tiles=32 时 512 个 block; 真撞到就是形状变了 */
     const dim3 grid(n_tok, gblocks);
     float *sp = (float *)score->ptr; const uint8_t *kp = (const uint8_t *)k->ptr; const float *wp = (const float *)weights->ptr;
     const int32_t *clp = cand_list ? (const int32_t *)cand_list->ptr : NULL, *pp = posd ? (const int32_t *)posd->ptr : NULL;

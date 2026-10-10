@@ -323,7 +323,7 @@ static int v41_vq_persist_n_go(int stage, uint16_t *h, float *part, const uint8_
             ? cudaFuncSetAttribute(v41_vq_gu_persist_n_kernel<NBIT, EXT, M, NW>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)cbb)
             : cudaFuncSetAttribute(v41_vq_dn_persist_n_kernel<NBIT, EXT, M, NW>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)cbb);
         if (e != cudaSuccess) {
-            fprintf(stderr, "ds4: [v41] VQ 验证批常驻核(M=%d)批不到 %u B 动态 shared: %s\n", M, cbb, cudaGetErrorString(e));
+            fprintf(stderr, "ds4: [v41] VQ 검증 배치 상주 커널(M=%d)에 동적 공유 메모리 %u B를 확보할 수 없습니다: %s\n", M, cbb, cudaGetErrorString(e));
             (void)cudaGetLastError();
             return 0;
         }
@@ -336,7 +336,7 @@ static int v41_vq_persist_n_go(int stage, uint16_t *h, float *part, const uint8_
         v41_pdl_register((const void *)v41_vq_dn_persist_n_kernel<NBIT, EXT, M, NW>);
         v41_vq_dn_persist_n_kernel<NBIT, EXT, M, NW><<<(unsigned)nsm, NW * 32, cbb, g_cur_stream>>>(part, blob, sel, ord, (const uint32_t *)h, MID, OUT, np, cbb, gr);
     }
-    return cuda_ok(cudaGetLastError(), stage == 0 ? "v41 vq gateup persist(验证批)" : "v41 vq down persist(验证批)");
+    return cuda_ok(cudaGetLastError(), stage == 0 ? "v41 VQ gateup 상주(검증 배치)" : "v41 VQ down 상주(검증 배치)");
 }
 /* 返回 1 = 发了; 0 = 不适用或批不到 shared(调用方回逐对 + 分组核)。组大小恒 ≤ V41_VQPN_M, 与批大小无关 ⇒ 一个实例。 */
 template <int NBIT, int EXT>
@@ -362,7 +362,7 @@ static int v41_vq_persist_launch(int stage, uint16_t *h, float *part, const uint
     static int s_nsm = 0;
     const uint32_t need = cbb + (stage == 0 ? IN * 2u : np * MID * 2u);   /* 码本 + 激活(bf16) */
     if (!s_nsm && cudaDeviceGetAttribute(&s_nsm, cudaDevAttrMultiProcessorCount, 0) != cudaSuccess) {
-        fprintf(stderr, "ds4: [v41] VQ 常驻核取不到 SM 数: %s\n", cudaGetErrorString(cudaGetLastError()));
+        fprintf(stderr, "ds4: [v41] VQ 상주 커널에서 SM 개수를 얻지 못했습니다: %s\n", cudaGetErrorString(cudaGetLastError()));
         return 0;
     }
     if (s_optin[stage] < need) {
@@ -370,7 +370,7 @@ static int v41_vq_persist_launch(int stage, uint16_t *h, float *part, const uint
             ? cudaFuncSetAttribute(v41_vq_gu_persist_kernel<NBIT, EXT>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)need)
             : cudaFuncSetAttribute(v41_vq_dn_persist_kernel<NBIT, EXT>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)need);
         if (e != cudaSuccess) {   /* 例: 64 KB 码本 + 验证批的大 h 超 99 KB。常驻核只接 n=1, 现役最大 91 KB */
-            fprintf(stderr, "ds4: [v41] VQ 常驻核批不到 %u B 动态 shared(码本 %u + 激活): %s\n", need, cbb, cudaGetErrorString(e));
+            fprintf(stderr, "ds4: [v41] VQ 상주 커널에 동적 공유 메모리 %u B를 확보할 수 없습니다(코드북 %u + 활성값): %s\n", need, cbb, cudaGetErrorString(e));
             (void)cudaGetLastError();
             return 0;
         }

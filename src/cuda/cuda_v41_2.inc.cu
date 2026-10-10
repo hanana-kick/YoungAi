@@ -125,7 +125,7 @@ int ds4_gpu_v41_compress_step_n_tensor(ds4_gpu_tensor *pooled, ds4_gpu_tensor *p
     v41_compress_step_n_kernel<<<1, 256, 0, g_cur_stream>>>((float *)pooled->ptr, (int32_t *)posg->ptr, (float *)cpre_kv->ptr, (float *)cpre_sc->ptr,
         snap_kv ? (float *)snap_kv->ptr : NULL, snap_sc ? (float *)snap_sc->ptr : NULL,
         (const float *)ckv->ptr, (const float *)csc->ptr, (const int32_t *)posd->ptr, ratio, dim, n);
-    return cuda_ok(cudaGetLastError(), "v41 compress step(n 行)");
+    return cuda_ok(cudaGetLastError(), "v41 압축 단계(n행)");
 }
 
 /* ---- 稀疏注意力(官方 sparse_attn_kernel 语义): 一 block 一 (query, 8 头)(128 线程 = 4 warp, 每 warp 2 头), grid (n, 8),
@@ -233,20 +233,20 @@ int ds4_gpu_v41_sparse_attn_tensor(ds4_gpu_tensor *o, const ds4_gpu_tensor *q, c
                                    uint32_t ratio,
                                    uint32_t n_head, uint32_t head_dim, float scale, int full_block, int ring,
                                    uint32_t win_lo, const ds4_gpu_tensor *posd, uint32_t pos_cap) {
-    if (!o || !q || !kv_win || n_head != 64u || head_dim != 512u) { fprintf(stderr, "ds4: [v41] sparse attn 只实现 64 头×512\n"); return 0; }
+    if (!o || !q || !kv_win || n_head != 64u || head_dim != 512u) { fprintf(stderr, "ds4: [v41] 희소 어텐션은 헤드 64개 × 512만 지원합니다\n"); return 0; }
     /* 钳位只有预填核实现(见 ds4_gpu_v41.h): 解码核(n≤8, 含 graph 路)进来时它必须是空操作, 否则停车而不是静默读脏槽。
      * 生成路把最后一块留够 window 个位置(core_v41_api.c), 所以解码时 p+1-window ≥ win_lo 恒成立。 */
     const uint32_t lo_first = pos0 + 1u > window ? pos0 + 1u - window : 0u;   /* 本批第一个 query 的自然下界(后面的只会更大) */
     const int clamp_matters = win_lo > lo_first;
     if (clamp_matters && n_tok <= 8u && !full_block) {
-        fprintf(stderr, "ds4: ★[v41] sparse attn: 解码核不实现窗口钳位, 但 pos0 %u 的窗口下界 %u < win_lo %u —— 最后一块没留够 window 个位置?★\n",
+        fprintf(stderr, "ds4: 경고: [v41] 희소 어텐션 디코드 커널에 윈도 범위 제한이 없는데 pos0 %u의 하한 %u가 win_lo %u보다 작습니다. 마지막 블록에서 윈도 위치가 부족할 수 있습니다\n",
                 pos0, lo_first, win_lo);
         return 0;
     }
     /* ★graph 路(posd 非 NULL)只许走解码张量核版★: 标量 split 版在主机上按真键数定段长, 进不了一次捕获的图;
      * 张量核版抬不上 shared 时这里直接失败(不静默换核 —— 换了核就与直发路不是同一累加序, 逐字节门必分叉)。 */
     if (posd) {
-        if (full_block || !ring || n_tok > 8u) { fprintf(stderr, "ds4: [v41] graph 路的注意力只收主路 n≤8 的形态\n"); return 0; }
+        if (full_block || !ring || n_tok > 8u) { fprintf(stderr, "ds4: [v41] 그래프 어텐션 경로는 기본 경로 n≤8 형상만 지원합니다\n"); return 0; }
         const float *sink = (const float *)cuda_model_range_ptr(model_map, sink_offset, (uint64_t)n_head * 4, "v41 sink");
         if (!sink) return 0;
         const int hasc = kv_comp && idx;   /* 纯窗口层(ratio 0)也走这里: 窗口范围同样随位置变 */
@@ -254,11 +254,11 @@ int ds4_gpu_v41_sparse_attn_tensor(ds4_gpu_tensor *o, const ds4_gpu_tensor *q, c
                                  hasc ? (const uint8_t *)kv_comp->ptr : NULL, hasc ? (const int32_t *)idx->ptr : NULL,
                                  sink, n_tok, pos0, window, hasc ? ng : 0u, hasc ? topk : 0u, hasc ? ratio : 0u, n_head, head_dim, scale,
                                  (const int32_t *)posd->ptr, pos_cap, 0u, 1u)) {
-            fprintf(stderr, "ds4: [v41] graph 路要的解码张量核注意力不可用\n"); return 0;
+            fprintf(stderr, "ds4: [v41] 그래프 경로에 필요한 텐서 코어 디코드 어텐션을 사용할 수 없습니다\n"); return 0;
         }
         return 1;
     }
-    if (kv_win->bytes < (uint64_t)(window + n_tok) * head_dim * 4) { fprintf(stderr, "ds4: [v41] 窗口缓冲不够 %u+%u 行\n", window, n_tok); return 0; }
+    if (kv_win->bytes < (uint64_t)(window + n_tok) * head_dim * 4) { fprintf(stderr, "ds4: [v41] 윈도 버퍼 크기 부족(%u+%u행)\n", window, n_tok); return 0; }
     const float *sink = (const float *)cuda_model_range_ptr(model_map, sink_offset, (uint64_t)n_head * 4, "v41 sink");
     if (!sink) return 0;
     /* ★段 4★ 预填先走张量核版(cuda_sparse_attn_mma.inc.cu); 它自己判形状/块大小/shared, 不适用返回 0 回这里。
@@ -269,7 +269,7 @@ int ds4_gpu_v41_sparse_attn_tensor(ds4_gpu_tensor *o, const ds4_gpu_tensor *q, c
     /* ★split-K 与 mma 两条快路只服务主路(历史段恒是环)★: 它们的调用条件是 !full_block, 而
      * full_block 只有 DSpark 草稿塔会给 —— 所以走到这两条路时 ring 必然是 1, 核里直接按环算。
      * 真要出现"非草稿的 full_block"或"非环的主路", 下面这个断言会先拦住, 不会静默读错行。 */
-    if (!full_block && !ring) { fprintf(stderr, "ds4: [v41] sparse attn: 主路窗口必须是环(decode.md D1)\n"); return 0; }
+    if (!full_block && !ring) { fprintf(stderr, "ds4: [v41] 희소 어텐션: 기본 경로의 윈도는 링 구조여야 합니다(decode.md D1)\n"); return 0; }
     /* ★解码先试张量核版★(decode.md D2): 对一个 query, S = Q[64×512]·Kᵀ[512×nkeys] 是个真 GEMM,
      * 标量版付 5 条 shfl 才换 16 个 FMA(实测 69 GFLOP/s = 峰值的 0.4%)。键少/形状不合它自己返回 0。 */
     if (!full_block &&

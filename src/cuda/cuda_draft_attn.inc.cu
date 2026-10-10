@@ -134,7 +134,7 @@ int ds4_gpu_draft_attn_fwd_tensor(ds4_gpu_tensor *o, ds4_gpu_tensor *lse, const 
     if (s_ok == 0) {
         s_ok = cudaFuncSetAttribute(dk_attn_seg_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smem) == cudaSuccess ? 1 : -1;
         (void)cudaGetLastError();
-        if (s_ok != 1) fprintf(stderr, "ds4: [dk] 块注意力核 shared %zu KB 抬不上去\n", smem >> 10);
+        if (s_ok != 1) fprintf(stderr, "ds4: [dk] 블록 어텐션 커널 공유 메모리 %zu KB 확보 실패\n", smem >> 10);
     }
     if (s_ok != 1) return 0;
     const uint32_t nkmax = window + B, nseg = (nkmax + v41_attn_fb_seg_keys(nkmax) - 1u) / v41_attn_fb_seg_keys(nkmax);   /* 键少的块是空段 */

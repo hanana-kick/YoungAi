@@ -166,7 +166,7 @@ static int v41_attn_mma_decode(float *o, const float *q, const float *kvw, const
         s_ok = cudaFuncSetAttribute(v41_attn_mma_seg_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
                                     (int)smem) == cudaSuccess ? 1 : -1;
         (void)cudaGetLastError();
-        fprintf(stderr, "ds4: [attn] 解码张量核版 shared %zu KB %s\n", smem >> 10, s_ok == 1 ? "已开" : "★抬不上去, 回标量版★");
+        fprintf(stderr, "ds4: [attn] 디코드 텐서 코어 커널 공유 메모리 %zu KB: %s\n", smem >> 10, s_ok == 1 ? "활성화" : "확보 실패, 스칼라 커널로 전환");
     }
     if (s_ok != 1) return 0;
     /* grid 的段数 = 批里各 query 各自算出来的段数的**最大值**(它们的段长可能不同, 见 v41_attn_seg_keys)。
@@ -191,7 +191,7 @@ static int v41_attn_mma_decode(float *o, const float *q, const float *kvw, const
         if (ns > nseg) nseg = ns;
     }
     if (nseg > V41_ATTN_SPLIT_MAX_SEG) {   /* 键数上限 = 窗口 + indexer top-k 上限, 到不了这里 */
-        fprintf(stderr, "ds4: ★[attn] 键 %u 需要 %u 段, 超上限 %u —— 走了另一条核, 同轨不再成立★\n",
+        fprintf(stderr, "ds4: 경고: [attn] 키 %u에 필요한 구간 %u가 한도 %u를 초과해 다른 커널을 사용합니다. 동일 실행 경로 비교는 유효하지 않습니다\n",
                 nkeys, nseg, (unsigned)V41_ATTN_SPLIT_MAX_SEG);
         return 0;
     }

@@ -12,7 +12,7 @@ static ds4_tensor *need(const ds4_model *m, const char *fmt, uint32_t il) { retu
 /* 按整名取(三塔的专家名字里有两个数字, 那几个头则没有层号可带) */
 static ds4_tensor *required_tensor_name(const ds4_model *m, const char *name) {
     ds4_tensor *t = model_find_tensor(m, name);
-    if (!t) { fprintf(stderr, "ds4: 缺张量 %s\n", name); exit(1); }
+    if (!t) { fprintf(stderr, "ds4: 텐서 %s가 누락됐습니다\n", name); exit(1); }
     return t;
 }
 
@@ -142,7 +142,7 @@ void weights_bind_v41(ds4_weights *w, const ds4_model *m) {
         w->mtp.markov_head = required_tensor_name(m, "mtp.markov_head.weight");
         w->mtp.confidence  = required_tensor_name(m, "mtp.confidence.weight");
         w->mtp.out_norm    = required_tensor_name(m, "mtp.out_norm.weight");
-        fprintf(stderr, "ds4: [v41] DSpark 三塔已接线: %u 塔 × %u 专家\n", v->mtp_towers, v->mtp_experts);
+        fprintf(stderr, "ds4: [v41] DSpark 3개 타워 연결 완료: 타워 %u개 × 전문가 %u개\n", v->mtp_towers, v->mtp_experts);
     }
 
     /* ---- 形状/类型校验: 一处错就停(V4.1 的格式解错不报错只出假数) ---- */

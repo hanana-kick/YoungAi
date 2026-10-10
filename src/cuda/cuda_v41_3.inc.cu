@@ -168,7 +168,7 @@ int ds4_gpu_v41_routed_moe_tensor(ds4_gpu_tensor *out, const void *model_map, ui
     {
         const uint8_t *bh = (const uint8_t *)model_map + blob_offset;
         if (!ds4vq_blob_ok(bh, (size_t)blob_bytes)) {
-            fprintf(stderr, "ds4: [v41] L%u 专家 blob 头不合法(魔数/版本/专家数); 本引擎认 DQVL v%u~v%u\n",
+            fprintf(stderr, "ds4: [v41] L%u 전문가 blob 헤더가 유효하지 않습니다(매직 값/버전/전문가 수); 지원 형식 DQVL v%u~v%u\n",
                     layer, DS4VQ_BLOB_VER_MIN, DS4VQ_BLOB_VER_MAX);
             exit(1);
         }
@@ -209,12 +209,12 @@ int ds4_gpu_v41_routed_moe_tensor(ds4_gpu_tensor *out, const void *model_map, ui
         void *dev = NULL;
         if (cudaHostRegister((void *)reg, (size_t)reg_bytes, cudaHostRegisterMapped) != cudaSuccess) {
             (void)cudaGetLastError();
-            fprintf(stderr, "ds4: [v41] L%u blob cudaHostRegister 失败 (%.2f GB)\n", layer, (double)reg_bytes / 1e9);
+            fprintf(stderr, "ds4: [v41] L%u blob cudaHostRegister 실패(%.2f GB)\n", layer, (double)reg_bytes / 1e9);
             return 0;
         }
         if (cudaHostGetDevicePointer(&dev, (void *)reg, 0) != cudaSuccess || !dev) {
             (void)cudaGetLastError(); (void)cudaHostUnregister((void *)reg);
-            fprintf(stderr, "ds4: [v41] L%u blob 设备指针失败\n", layer);
+            fprintf(stderr, "ds4: [v41] L%u blob GPU 포인터 획득 실패\n", layer);
             return 0;
         }
         g_v41_stream_reg.reg = reg; g_v41_stream_reg.bytes = reg_bytes; g_v41_stream_reg.dev = dev; g_v41_stream_reg.valid = 1;

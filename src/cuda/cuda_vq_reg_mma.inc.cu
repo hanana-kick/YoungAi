@@ -70,7 +70,7 @@ __global__ __launch_bounds__(VQS_THREADS, 1) static void vqs_kernel(
     constexpr uint32_t NTN = VQS_NTM / 8u, RB = 12u * RS, CP = RS == 4u ? 16u : 8u;   /* 每行每段 RB 字节, 拆 3 块 CP 字节搬 */
     constexpr uint32_t BSB = VQS_BM * RB, EXB = EXT ? VQS_BM * 4u : 0u, ATB = VQS_NTM * 128u * RS, STB = BSB + EXB + ATB;
     constexpr uint32_t PCH = 384u, PD = 2u, SPC = PCH / RB;   /* L2 预取: 每行 384 B 一块, 提前 PD 块; SPC = 一块够几段 */
-    static_assert(RS == 2u || RS == 4u, "一段 2 或 4 轮");
+    static_assert(RS == 2u || RS == 4u, "한 구간 2~4라운드");
     extern __shared__ __align__(16) uint8_t vqssh[];
     uint8_t *cbs = vqssh, *ring = vqssh + cb_bytes;
     const int which = MODE;   /* 载荷槽: 0 w1(gate) / 1 w3(up) / 2 w2(down) */
@@ -224,7 +224,7 @@ static int vqs_blob_fits(uint32_t layer, const uint8_t *blob, uint32_t n_total, 
         const uint64_t off = g_vqp_hdr[layer][k].off;
         if (off && ((off + 32u + (uint64_t)((k % 3u) == 2u ? OUT : MID) * 2u) & 15u)) ok = 0;
     }
-    if (!ok) { static int said; if (!said++) fprintf(stderr, "ds4: [vq-prefill] L%u 专家 blob 不是对齐的设备副本(映射/平拷), 这类层走瓦片核\n", layer); }
+    if (!ok) { static int said; if (!said++) fprintf(stderr, "ds4: [vq-prefill] L%u 전문가 blob이 정렬된 GPU 복사본이 아닙니다(매핑/일반 복사). 이 레이어는 타일 커널을 사용합니다\n", layer); }
     g_vqs_fit[layer].blob = blob; g_vqs_fit[layer].ok = ok;
     return ok;
 }
@@ -249,7 +249,7 @@ static int vqs_launch3(float *g32, uint16_t *h16, float *hu, float *ys, const ui
                             cudaOccupancyMaxActiveBlocksPerMultiprocessor(&oc[0], vqs_kernel<E, 0, RS_, 2>, (int)VQS_THREADS, shb) == cudaSuccess && oc[0] > 0; \
             if (!ok) { (void)cudaGetLastError(); oc[0] = -1; } \
         } \
-        if (oc[0] < 0) { fprintf(stderr, "ds4: [vq-prefill] L%u 寄存器直解核开不出 %u KB shared\n", layer_index, shb >> 10); return 0; } \
+        if (oc[0] < 0) { fprintf(stderr, "ds4: [vq-prefill] L%u 레지스터 직접 디코드 커널에 공유 메모리 %u KB를 확보할 수 없습니다\n", layer_index, shb >> 10); return 0; } \
         const uint32_t gcap = (uint32_t)g_vqm.nsm * (uint32_t)oc[0], ng = nitems * (MID / VQS_BM), nd = nitems * (OUT / VQS_BM); \
         vqs_kernel<E, 0, RS_, 2><<<ng < gcap ? ng : gcap, VQS_THREADS, shb, g_cur_stream>>>(g32, NULL, NULL, blob, items, nitems, xs, doff, MID, IN, clamp, cbb, NULL); \
         if (!cuda_ok(cudaGetLastError(), "vq prefill reg gate")) return 0; \

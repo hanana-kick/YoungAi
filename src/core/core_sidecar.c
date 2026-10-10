@@ -51,7 +51,7 @@ struct ds4_residual *vq_dir_load(const char *dir) {
     if (!loaded) { free(r); return NULL; }
     r->present = true;
     g_vq_experts_blob = true;
-    fprintf(stderr, "ds4: v2.2 VQ 侧车直读 %s (%u 层)\n", dir, loaded);
+    fprintf(stderr, "ds4: v2.2 VQ 사이드카 직접 로드 %s(%u레이어)\n", dir, loaded);
     return r;
 }
 
@@ -69,7 +69,7 @@ struct ds4_residual *vq_model_load(const ds4_model *m) {
         if (!p || t->bytes < 16 + 256 * 3 * 8) continue;
         uint32_t mg; memcpy(&mg, p, 4);
         if (mg != 0x4C565144u) {
-            fprintf(stderr, "ds4: 内嵌 VQ blob 层 %u 魔数错 -- aborting (no silent quality downgrade)\n", il);
+            fprintf(stderr, "ds4: 내장 VQ blob 레이어 %u의 매직 값이 잘못되어 중단합니다(품질 저하 방지를 위해 자동 폴백하지 않음)\n", il);
             exit(1);
         }
         r->layer[il].vq_raw = p;
@@ -80,7 +80,7 @@ struct ds4_residual *vq_model_load(const ds4_model *m) {
     if (!loaded) { free(r); return NULL; }
     r->present = true;
     g_vq_experts_blob = true;
-    fprintf(stderr, "ds4: 合一 GGUF 内嵌 VQ blob 装载 (%u 层)\n", loaded);
+    fprintf(stderr, "ds4: 통합 GGUF 내장 VQ blob 로드(%u레이어)\n", loaded);
     return r;
 }
 

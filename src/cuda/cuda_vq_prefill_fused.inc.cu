@@ -28,7 +28,7 @@
  * —— 不是跑慢, 是起不来。一 block 32 个 warp = 1024 线程, 每线程寄存器上限 64 个, 现版把 acc[] 放在
  * local memory 才刚好塞下; 一旦模板化把它提进寄存器就超预算。要腾寄存器就得把块降到 512 线程, 而码本
  * 64 KB 让每个 SM 只驻 1 个 block, **块大小就是占用率**, 降块 = SM 的 warp 数砍半(第四轮量过, 亏)。
- * ⇒ 这 4 倍在"码本进 shared"的形态里吃不掉。正路是 speed.md 段 5: 专家解到 **NVFP4 暂存 + 板子原生
+ * ⇒ 这 4 倍在"码本공유 메모리 사용"的形态里吃不掉。正路是 speed.md 段 5: 专家解到 **NVFP4 暂存 + 板子原生
  * FP4 张量核 GEMM**(S0 实测 284~356 TFLOPS), 那条路根本不需要码本待在 shared 里。 */
 #define V41_VQP_NT     8u          /* 一个工作项最多带几个 token(acc 在 local memory, 见上) */
 #define V41_VQP_ITERS  8u          /* 一 warp 循环几行: 码本只搬一次, 摊薄到 32×8 = 256 行/block */
@@ -158,7 +158,7 @@ __global__ static void vqp_fused_down_kernel(float *ys, const uint8_t *blob, con
 }
 
 static struct { vqp_item *d; uint64_t cap; float *h32, *g32, *xs32; uint64_t h32_cap, g32_cap, xs32_cap; uint32_t *doff; uint64_t doff_cap; } g_vqpf;
-static int g_vqpf_sh = 0;   /* 0 未判定 / 1 码本进 shared / -1 放不下(那就没有本路, 硬失败) */
+static int g_vqpf_sh = 0;   /* 0 未判定 / 1 码本공유 메모리 사용 / -1 放不下(那就没有本路, 硬失败) */
 
 /* 返回 0 = 本路不可用(调用方硬失败, 不静默退回老路: 退回去就永远不知道哪条路在跑) */
 static int vqm_run(const uint8_t *blob, const uint32_t *cnt, const uint32_t *off_h, uint32_t n_total_expert, uint32_t nvalid,
@@ -188,8 +188,8 @@ static int vqp_fused_run(const uint8_t *blob, const uint32_t *cnt, const uint32_
 #undef VQP_ATTR
         (void)cudaGetLastError();
         g_vqpf_sh = (og && od) ? 1 : -1;
-        fprintf(stderr, "ds4: [vq-prefill] 融合路码本 %u KB/本(DQVL v%u, %u 位) → %s\n", cbb >> 10, ver, nbit,
-                g_vqpf_sh == 1 ? "进 shared" : "★放不下, 本路不可用★");
+        fprintf(stderr, "ds4: [vq-prefill] 융합 경로 코드북당 %u KB(DQVL v%u, %u비트) → %s\n", cbb >> 10, ver, nbit,
+                g_vqpf_sh == 1 ? "공유 메모리 사용" : "메모리가 부족하여 해당 경로 사용 불가");
     }
     if (g_vqpf_sh != 1) return 0;
     /* 工作项: 每专家按 NT 切段 */
@@ -212,7 +212,7 @@ static int vqp_fused_run(const uint8_t *blob, const uint32_t *cnt, const uint32_
     if (ok) ok = cudaMemcpyAsync(g_vqpf.d, ih, (size_t)nit * sizeof(vqp_item), cudaMemcpyHostToDevice, g_cur_stream) == cudaSuccess &&
                  cudaMemcpyAsync(g_vqpf.doff, off_h, (size_t)(n_total_expert + 1u) * sizeof(uint32_t), cudaMemcpyHostToDevice, g_cur_stream) == cudaSuccess;
     free(ih);
-    if (!ok) { (void)cudaGetLastError(); fprintf(stderr, "ds4: [vq-prefill] L%u 融合路暂存/拷贝失败\n", layer_index); return 0; }
+    if (!ok) { (void)cudaGetLastError(); fprintf(stderr, "ds4: [vq-prefill] L%u 융합 경로 임시 버퍼/복사 실패\n", layer_index); return 0; }
     vqp_gather32_kernel<<<nvalid, 256, 0, g_cur_stream>>>(g_vqpf.xs32, x, perm, n_expert, IN);
     if (!cuda_ok(cudaGetLastError(), "vq prefill gather32")) return 0;
     /* ★2026-09-20: 这里原来无条件转给 vqn_prefill_run(段 5 的 NVFP4 张量核路), 现在走回本文件的融合核★
@@ -248,7 +248,7 @@ static int vqp_fused_run(const uint8_t *blob, const uint32_t *cnt, const uint32_
     if (ver == 3u) {
         if (nbit == 12u) VQP_LAUNCH(1, 0);
         if (nbit == 13u) VQP_LAUNCH(1, 1);
-        fprintf(stderr, "ds4: [vq-prefill] L%u DQVL v3 码本 %u 词没有对应实例(只有 12/13 位)\n", layer_index, nc);
+        fprintf(stderr, "ds4: [vq-prefill] L%u DQVL v3 코드북 %u항목에 대응하는 커널이 없습니다(12/13비트만 지원)\n", layer_index, nc);
         return 0;
     }
     VQP_LAUNCH(0, 0);

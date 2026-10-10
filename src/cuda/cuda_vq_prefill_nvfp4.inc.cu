@@ -112,8 +112,8 @@ static int vqn_mat_gemm(uint8_t *xnib, uint8_t *xsc, const uint8_t *blob, int e,
                         int slot, const char *what) {
     const uint32_t nkb = cols / V41_NVFP4_BLK;
     const uint64_t sc_n = ((uint64_t)(rows + 127u) / 128u * 128u) * ((nkb + 3u) / 4u * 4u);
-    uint8_t *wnib = (uint8_t *)v41_grow(&g_vqn[slot].nib, (uint64_t)rows * (cols / 2u), "vqn 权重");
-    uint8_t *wsc  = (uint8_t *)v41_grow(&g_vqn[slot].sc, sc_n, "vqn 权重缩放");
+    uint8_t *wnib = (uint8_t *)v41_grow(&g_vqn[slot].nib, (uint64_t)rows * (cols / 2u), "VQN 가중치");
+    uint8_t *wsc  = (uint8_t *)v41_grow(&g_vqn[slot].sc, sc_n, "VQN 가중치 스케일");
     if (!wnib || !wsc) return 0;
     (void)cudaMemsetAsync(wsc, 0, sc_n, g_cur_stream);   /* 补齐区必须清零, 张量核会读到 */
     const uint64_t nb = (uint64_t)rows * nkb;
@@ -145,8 +145,8 @@ static int vqn_prefill_run(const uint8_t *blob, const uint32_t *cnt, const uint3
         /* 激活片按专家单独转一次: 缩放张量是 128 行一块的 swizzle 布局, 从中间某一行切片会错位 */
         const uint32_t xnkb = IN / V41_NVFP4_BLK, hnkb = MID / V41_NVFP4_BLK;
         const uint64_t xsc_n = ((uint64_t)(npad + 127u) / 128u * 128u) * ((xnkb + 3u) / 4u * 4u);
-        uint8_t *xnib = (uint8_t *)v41_grow(&g_vqn_xnib, (uint64_t)npad * (IN / 2u), "vqn 激活");
-        uint8_t *xsc  = (uint8_t *)v41_grow(&g_vqn_xsc, xsc_n, "vqn 激活缩放");
+        uint8_t *xnib = (uint8_t *)v41_grow(&g_vqn_xnib, (uint64_t)npad * (IN / 2u), "VQN 활성값");
+        uint8_t *xsc  = (uint8_t *)v41_grow(&g_vqn_xsc, xsc_n, "VQN 활성값 스케일");
         if (!xnib || !xsc) return 0;
         (void)cudaMemsetAsync(xsc, 0, xsc_n, g_cur_stream);
         vqn_xslice_to_nvfp4_kernel<<<(unsigned)(((uint64_t)npad * xnkb + 255) / 256), 256, 0, g_cur_stream>>>(
@@ -167,7 +167,7 @@ static int vqn_prefill_run(const uint8_t *blob, const uint32_t *cnt, const uint3
         /* h 片已是连续 nt 行, 直接当激活转 NVFP4(借同一组暂存) */
         const uint64_t hsc_n = ((uint64_t)(npad + 127u) / 128u * 128u) * ((hnkb + 3u) / 4u * 4u);
         uint8_t *hnib = (uint8_t *)v41_grow(&g_vqn_hnib, (uint64_t)npad * (MID / 2u), "vqn h");
-        uint8_t *hsc  = (uint8_t *)v41_grow(&g_vqn_hsc, hsc_n, "vqn h 缩放");
+        uint8_t *hsc  = (uint8_t *)v41_grow(&g_vqn_hsc, hsc_n, "VQN h 스케일");
         if (!hnib || !hsc) return 0;
         (void)cudaMemsetAsync(hsc, 0, hsc_n, g_cur_stream);
         vqn_xslice_to_nvfp4_kernel<<<(unsigned)(((uint64_t)npad * hnkb + 255) / 256), 256, 0, g_cur_stream>>>(

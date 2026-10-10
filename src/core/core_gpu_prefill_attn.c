@@ -288,9 +288,9 @@ bool metal_graph_encode_layer_attention_batch_stages(
                 if (ok && ((pos + 1u) % ratio) == 0u) {
                     ok = metal_graph_comp_emit_step(g, model, layer, il, ratio, compressed, freq_base, freq_scale,
                                                     ext_factor, attn_factor);
-                    if (!ok) fprintf(stderr, "ds4: 小批压缩器 emit 失败 L%u pos %u\n", il, pos);
+                    if (!ok) fprintf(stderr, "ds4: 소규모 배치 압축기 출력 실패 L%u pos %u\n", il, pos);
                 }
-                if (!ok) fprintf(stderr, "ds4: 小批压缩器 token %u(pos %u) L%u 失败\n", t, pos, il);
+                if (!ok) fprintf(stderr, "ds4: 소규모 배치 압축기 토큰 %u(pos %u) L%u 처리 실패\n", t, pos, il);
                 if (comp_counts) comp_counts[t] = (pos + 1u) / ratio;
                 if (index_counts) index_counts[t] = (pos + 1u) / ratio;
             }

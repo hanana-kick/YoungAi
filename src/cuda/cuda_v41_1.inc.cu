@@ -75,7 +75,7 @@ static void *v41_grow(v41_scratch *s, uint64_t bytes, const char *what) {
     s->p = NULL; s->cap = 0;
     if (cudaMalloc(&s->p, (size_t)bytes) != cudaSuccess) {
         (void)cudaGetLastError();
-        fprintf(stderr, "ds4: [v41] %s 暂存分配失败 (%.1f MB)\n", what, (double)bytes / 1048576.0);
+        fprintf(stderr, "ds4: [v41] %s 임시 버퍼 할당 실패(%.1f MB)\n", what, (double)bytes / 1048576.0);
         return NULL;
     }
     s->cap = bytes;
@@ -104,7 +104,7 @@ uint64_t ds4_gpu_v41_scratch_release(void) {
         if (k < 5u) top[k] = i;
     }
     if (nt) {
-        fprintf(stderr, "ds4: [v41] 暂存最大的几块:");
+        fprintf(stderr, "ds4: [v41] 가장 큰 임시 버퍼 목록:");
         for (uint32_t k = 0; k < nt; k++) fprintf(stderr, " %s %.0f MB;", g_v41_scratch_what[top[k]], (double)g_v41_scratch_reg[top[k]]->cap / 1048576.0);
         fprintf(stderr, "\n");
     }

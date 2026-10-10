@@ -246,8 +246,8 @@ static bool accelerator_cache_model_tensor_spans(const ds4_model *m, uint64_t *c
             snprintf(label, sizeof(label), "tensor-span:%" PRIu64, merged);
             if (accelerator_mem_available_bytes() < DS4_CACHE_AVAIL_FLOOR_BYTES) {
                 fprintf(stderr,
-                        "ds4: ★内存地板★ MemAvailable 已低于 %.0f GB, 停止把权重拷进设备副本;\n"
-                        "     余下 %.2f GiB 走主机映射(每步会有长尾, 见 single.md §2.1)\n",
+                        "ds4: 메모리 하한 경고: MemAvailable이 %.0f GB 미만으로 떨어져 GPU 메모리로 가중치 복사를 중단합니다;\n"
+                        "     남은 %.2f GiB는 호스트 메모리 매핑으로 처리합니다(디코드 단계에서 지연이 증가할 수 있음, single.md §2.1)\n",
                         (double)DS4_CACHE_AVAIL_FLOOR_BYTES / 1e9,
                         (double)(total_bytes - cached) / 1073741824.0);
                 free(spans);
@@ -309,13 +309,13 @@ bool accelerator_cache_model_tensors(ds4_backend backend, const ds4_model *m) {
                 "ds4: CUDA startup model cache prepared %.2f GiB of tensor spans in %.3fs\n",
                 (double)cached / 1073741824.0,
                 t1 - t0);
-        fprintf(stderr, "ds4: [缓存对账] 装进设备 %.2f GiB / 走主机映射 %.2f GiB\n",
+        fprintf(stderr, "ds4: [캐시 집계] GPU 상주 %.2f GiB / 호스트 메모리 매핑 %.2f GiB\n",
                 (double)in_dev / 1073741824.0, (double)mapped / 1073741824.0);
         if (mapped > 0)
             fprintf(stderr,
-                    "ds4: ★%.2f GiB 权重没进设备副本, 走 cudaHostRegister 映射 —— 若解码路会读它, 每步要被页回收\n"
-                    "     拖出几毫秒到几十毫秒的长尾(single.md §2.1)。被挤出的是最后装的那批(装载优先级:\n"
-                    "     主干骨架 > 主干专家 blob > DSpark 三塔), 所以三塔被挤出时解码不受影响(它一次都不读)。★\n",
+                    "ds4: 경고: 가중치 %.2f GiB가 GPU 메모리에 복사되지 않아 cudaHostRegister 매핑을 사용합니다. 디코드 시 접근하면 페이지 재확보 때문에\n"
+                    "     수 ms~수십 ms의 추가 지연이 발생할 수 있습니다(single.md §2.1). 후순위로 로드된 가중치부터 제외됩니다(우선순위:\n"
+                    "     기본 골격 > 기본 전문가 blob > DSpark 3개 타워). 타워만 제외되면 일반 디코드에는 영향이 없습니다.\n",
                     (double)mapped / 1073741824.0);
     }
     return true;

@@ -29,7 +29,7 @@ static int asg_grow(void **p, uint64_t *cap, uint64_t need, size_t elem, const c
     *p = NULL; *cap = 0;
     if (cudaMalloc(p, need * elem) != cudaSuccess) {
         (void)cudaGetLastError();
-        fprintf(stderr, "ds4: [attn-gemm] %s 分配失败 (%.1f MB)\n", what, (double)need * elem / 1048576.0);
+        fprintf(stderr, "ds4: [attn-gemm] %s 할당 실패(%.1f MB)\n", what, (double)need * elem / 1048576.0);
         return 0;
     }
     *cap = need;

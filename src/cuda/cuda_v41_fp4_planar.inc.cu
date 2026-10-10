@@ -48,7 +48,7 @@ static v41_fp4_planar v41_fp4_planar_get(const void *model_map, uint64_t model_s
     void *buf = NULL;
     if (cudaMalloc(&buf, (size_t)need) != cudaSuccess) {
         (void)cudaGetLastError();
-        fprintf(stderr, "ds4: [v41] fp4 平面副本建不下(%s, %.1f MB), 这个张量照旧走交错布局\n",
+        fprintf(stderr, "ds4: [v41] FP4 평면 배치 복사본을 생성할 메모리가 부족합니다(%s, %.1f MB). 이 텐서는 기존 인터리브 배치를 유지합니다\n",
                 what, (double)need / 1048576.0);
         g_fp4_planar[off] = none; return none;
     }

@@ -15,19 +15,19 @@ static int v41_vq_fused_moe(float *out, const uint8_t *blob, uint32_t IN, uint32
     uint32_t nbit = 0; while ((1u << nbit) < nc) nbit++;
     /* 一轮 32 个索引 ⇒ IN/MID 是 256 的倍数(V4.1 Flash: 5120 → 20 轮, 2304 → 9 轮); 尾块几轮都行 */
     if ((IN % 256u) || (MID % 256u)) {
-        fprintf(stderr, "ds4: [v41] VQ 解码核要求 IN/MID 是 256 的倍数(一轮 32 个索引), 现 %u/%u\n", IN, MID);
+        fprintf(stderr, "ds4: [v41] VQ 디코드 커널은 IN/MID가 256의 배수여야 합니다(라운드당 인덱스 32개). 현재 %u/%u\n", IN, MID);
         return 0;
     }
     if (ver == 3u) {
         /* v3: 12 位层无位平面, 13 位层带一个。更宽要再加一个平面(转换器那边同样是硬停, 不静默) */
         if (nbit == 12u) return v41_vq_fused_moe_n<12, 1, 0>(out, blob, IN, MID, OUT, sel, w, K, clamp, x, n_tok, nc, gr);
         if (nbit == 13u) return v41_vq_fused_moe_n<13, 1, 1>(out, blob, IN, MID, OUT, sel, w, K, clamp, x, n_tok, nc, gr);
-        fprintf(stderr, "ds4: [v41] DQVL v3 码本 %u 词(%u 位)没有对应的解码核实例(只有 12/13 位)\n", nc, nbit);
+        fprintf(stderr, "ds4: [v41] DQVL v3 코드북 %u항목(%u비트)에 해당하는 디코드 커널이 없습니다(12/13비트만 지원)\n", nc, nbit);
         return 0;
     }
     /* v2 两档实例(几何与代价见 cuda_vq_row.inc.cu 文件头): nc4096 = 12 位, nc2048 = 11 位 */
     if (nbit == 12u) return v41_vq_fused_moe_n<12, 0, 0>(out, blob, IN, MID, OUT, sel, w, K, clamp, x, n_tok, nc, gr);
     if (nbit == 11u) return v41_vq_fused_moe_n<11, 0, 0>(out, blob, IN, MID, OUT, sel, w, K, clamp, x, n_tok, nc, gr);
-    fprintf(stderr, "ds4: [v41] VQ 码本 %u 词(%u 位)没有对应的解码核实例\n", nc, nbit);
+    fprintf(stderr, "ds4: [v41] VQ 코드북 %u항목(%u비트)에 해당하는 디코드 커널이 없습니다\n", nc, nbit);
     return 0;
 }

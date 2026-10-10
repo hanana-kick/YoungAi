@@ -243,7 +243,7 @@ static int vqm_run_impl(const uint8_t *blob, const uint32_t *cnt, const uint32_t
                         uint32_t n_expert, uint32_t layer_index, float *ys, const float *gr, float *hg, uint16_t *ha, float *hu) {
     uint32_t nbit = 0; while ((1u << nbit) < nc) nbit++;
     if ((nbit != 12u && nbit != 13u) || IN % VQM_BK || MID % VQM_BK) {
-        fprintf(stderr, "ds4: [vq-prefill] L%u 张量核路不认这个形状(码本 %u 词, IN %u MID %u)\n", layer_index, nc, IN, MID);
+        fprintf(stderr, "ds4: [vq-prefill] L%u 텐서 코어 경로에서 지원하지 않는 형상입니다(코드북 %u항목, IN %u MID %u)\n", layer_index, nc, IN, MID);
         return 0;
     }
     /* 12 位层码本进 shared 时转成 bf16(nc×16 B = 64 KB); 13 位层 8192 词转 bf16 要 128 KB 放不下, 留 E4M3(64 KB)现场转 */
@@ -254,8 +254,8 @@ static int vqm_run_impl(const uint8_t *blob, const uint32_t *cnt, const uint32_t
         const bool ok = cudaDeviceGetAttribute(&nsm, cudaDevAttrMultiProcessorCount, 0) == cudaSuccess && nsm > 0;
         (void)cudaGetLastError();
         g_vqm.ready = ok ? 1 : -1; g_vqm.nsm = nsm;
-        fprintf(stderr, "ds4: [vq-prefill] 张量核路(bf16 mma, 一工作项 ≤%u token, %u 线程) %s, %d 个 SM\n",
-                VQM_BN, VQM_THREADS, ok ? "就绪" : "★不可用★", nsm);
+        fprintf(stderr, "ds4: [vq-prefill] 텐서 코어 경로(BF16 MMA, 작업 항목당 ≤%u토큰, 스레드 %u개) %s, SM %d개\n",
+                VQM_BN, VQM_THREADS, ok ? "준비 완료" : "사용 불가", nsm);
     }
     if (g_vqm.ready != 1) return 0;
     const bool rs = vqs_shape_ok(IN, MID, OUT, nbit) && vqs_blob_fits(layer_index, blob, n_total_expert, IN, MID, OUT);
@@ -281,14 +281,14 @@ static int vqm_run_impl(const uint8_t *blob, const uint32_t *cnt, const uint32_t
                  cudaMemcpyAsync(g_vqm.doff, off_h, (size_t)(n_total_expert + 1u) * sizeof(uint32_t), cudaMemcpyHostToDevice, g_cur_stream) == cudaSuccess;
     /* ih 是异步 H2D 的源, 主机内存可分页 ⇒ cudaMemcpyAsync 在返回前已拷进暂存, 这里释放是安全的(融合路同款) */
     free(ih);
-    if (!ok) { (void)cudaGetLastError(); fprintf(stderr, "ds4: [vq-prefill] L%u 张量核路暂存/拷贝失败\n", layer_index); return 0; }
+    if (!ok) { (void)cudaGetLastError(); fprintf(stderr, "ds4: [vq-prefill] L%u 텐서 코어 경로 임시 버퍼/복사 실패\n", layer_index); return 0; }
     vqm_gather16_kernel<<<nvalid, 256, 0, g_cur_stream>>>(g_vqm.xs16, x, perm, n_expert, IN);
     if (!cuda_ok(cudaGetLastError(), "vq prefill mma gather16")) return 0;
     if (rs) return vqs_launch3(g32, h16, hu, ys, blob, g_vqm.d, nit, g_vqm.xs16, g_vqm.doff, IN, MID, OUT, nc, nbit, clamp, gr, layer_index);
     const uint32_t tg = (MID + VQM_BM - 1u) / VQM_BM, td = (OUT + VQM_BM - 1u) / VQM_BM;
 #define VQM_LAUNCH(E, CB) do { \
         const int bg = vqm_grid_of<E, 0, CB>(shb, nit * tg), bu = vqm_grid_of<E, 1, CB>(shb, nit * tg), bd = vqm_grid_of<E, 2, CB>(shb, nit * td); \
-        if (bg <= 0 || bu <= 0 || bd <= 0) { fprintf(stderr, "ds4: [vq-prefill] L%u 张量核实例开不出 %u KB shared\n", layer_index, shb >> 10); return 0; } \
+        if (bg <= 0 || bu <= 0 || bd <= 0) { fprintf(stderr, "ds4: [vq-prefill] L%u 텐서 코어 커널에 공유 메모리 %u KB를 확보할 수 없습니다\n", layer_index, shb >> 10); return 0; } \
         vqm_kernel<E, 0, CB><<<bg, VQM_THREADS, shb, g_cur_stream>>>(g32, NULL, NULL, blob, g_vqm.d, nit, g_vqm.xs16, g_vqm.doff, MID, IN, clamp, cbb, NULL); \
         if (!cuda_ok(cudaGetLastError(), "vq prefill mma gate")) return 0; \
         vqm_kernel<E, 1, CB><<<bu, VQM_THREADS, shb, g_cur_stream>>>(g32, h16, hu, blob, g_vqm.d, nit, g_vqm.xs16, g_vqm.doff, MID, IN, clamp, cbb, NULL); \

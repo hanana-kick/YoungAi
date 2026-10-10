@@ -19,11 +19,11 @@ void eval_hdump_tensor_rows(const ds4_gpu_tensor *hc, uint32_t il, uint32_t n_to
         snprintf(p, sizeof p, "%s/h_L%02u.bin", dir, il);
         FILE *f = fopen(p, "ab");
         if (!f) {
-            fprintf(stderr, "ds4: [EVAL_HDUMP] 打不开 %s -- aborting\n", p);
+            fprintf(stderr, "ds4: [EVAL_HDUMP] %s 파일을 열 수 없어 중단합니다\n", p);
             exit(1);
         }
         if (fwrite(buf, sizeof(float), nf, f) != nf) {
-            fprintf(stderr, "ds4: [EVAL_HDUMP] 写 %s 短写 -- aborting\n", p);
+            fprintf(stderr, "ds4: [EVAL_HDUMP] %s 쓰기 크기 부족으로 중단합니다\n", p);
             exit(1);
         }
         fclose(f);
@@ -45,11 +45,11 @@ void eval_hdump_raw_rows(const ds4_gpu_tensor *raw, uint32_t tag, uint32_t slot0
     char pth[1024];
     snprintf(pth, sizeof pth, "%s/h_L%02u.bin", dir, tag);
     FILE *f = fopen(pth, "ab");
-    if (!f) { fprintf(stderr, "ds4: [EVAL_HDUMP] 打不开 %s -- aborting\n", pth); exit(1); }
+    if (!f) { fprintf(stderr, "ds4: [EVAL_HDUMP] %s 파일을 열 수 없어 중단합니다\n", pth); exit(1); }
     for (uint32_t i = 0; i < n; i++) {
         const uint32_t slot = (slot0 + i) % raw_cap;
         if (ds4_gpu_tensor_read(raw, (uint64_t)slot * rowb, buf, rowb) &&
-            fwrite(buf, 1, (size_t)rowb, f) != (size_t)rowb) { fprintf(stderr, "ds4: [EVAL_HDUMP] 写 %s 短写\n", pth); exit(1); }
+            fwrite(buf, 1, (size_t)rowb, f) != (size_t)rowb) { fprintf(stderr, "ds4: [EVAL_HDUMP] %s 쓰기 크기 부족\n", pth); exit(1); }
     }
     fclose(f);
     free(buf);
@@ -63,7 +63,7 @@ static FILE *eval_hdump_open(const char *name) {
     char p[1024];
     snprintf(p, sizeof p, "%s/%s", dir, name);
     FILE *f = fopen(p, "ab");
-    if (!f) { fprintf(stderr, "ds4: [EVAL_HDUMP] 打不开 %s -- aborting\n", p); exit(1); }
+    if (!f) { fprintf(stderr, "ds4: [EVAL_HDUMP] %s 파일을 열 수 없어 중단합니다\n", p); exit(1); }
     return f;
 }
 void eval_hdump_pos(uint32_t pos0, uint32_t n) {
@@ -71,7 +71,7 @@ void eval_hdump_pos(uint32_t pos0, uint32_t n) {
     if (!f) return;
     for (uint32_t i = 0; i < n; i++) {
         const uint32_t v = pos0 + i;
-        if (fwrite(&v, sizeof v, 1, f) != 1) { fprintf(stderr, "ds4: [EVAL_HDUMP] 写 h_pos.bin 短写\n"); exit(1); }
+        if (fwrite(&v, sizeof v, 1, f) != 1) { fprintf(stderr, "ds4: [EVAL_HDUMP] h_pos.bin 쓰기 크기 부족\n"); exit(1); }
     }
     fclose(f);
 }
@@ -81,7 +81,7 @@ void eval_hdump_logits_rows(const float *logits, uint32_t n) {
     FILE *f = (n && logits) ? eval_hdump_open("h_L96.bin") : NULL;
     if (!f) return;
     const size_t nf = (size_t)n * DS4_N_VOCAB;
-    if (fwrite(logits, sizeof(float), nf, f) != nf) { fprintf(stderr, "ds4: [EVAL_HDUMP] 写 h_L96.bin 短写\n"); exit(1); }
+    if (fwrite(logits, sizeof(float), nf, f) != nf) { fprintf(stderr, "ds4: [EVAL_HDUMP] h_L96.bin 쓰기 크기 부족\n"); exit(1); }
     fclose(f);
 }
 
@@ -182,7 +182,7 @@ bool metal_graph_spec_comp_fastforward(ds4_gpu_graph *g, const ds4_model *model,
     for (uint32_t il = 0; ok && il < (uint32_t)DS4_N_LAYER; il++) {
         const uint32_t ratio = ds4_layer_compress_ratio(il);
         if (ratio == 0 || g->spec_emit_t[il] < (int8_t)1 || (uint32_t)g->spec_emit_t[il] < acc) continue;
-        if (!g->spec_comp_rows_kv[il]) { fprintf(stderr, "ds4: spec 快进 L%u 没有捕获行\n", il); return false; }
+        if (!g->spec_comp_rows_kv[il]) { fprintf(stderr, "ds4: 추측 디코드 빠른 진행 L%u에 캡처된 행이 없습니다\n", il); return false; }
         for (uint32_t t = 0; ok && t < acc; t++) {
             ds4_gpu_tensor *xrow = metal_graph_tensor_row_view(g->spec_comp_rows_kv[il], t, DS4_N_EMBD);
             ok = xrow && metal_graph_comp_push_row(g, il, ratio, pos0 + t, xrow);
@@ -265,7 +265,7 @@ bool metal_graph_dspark_state_snapshot(ds4_gpu_graph *g, uint32_t pos0, uint32_t
         g->spec_emit_t[il] = (int8_t)te;
         /* 无 emit: state 不动, 只需计数。emit 在 t=0: 首候选必接受 ⇒ 永不回滚, 也不用拷。 */
         if (te < 1) continue;
-        if (!g->spec_prefix1_attn_state_kv[il]) { fprintf(stderr, "ds4: spec 快照 L%u 缺缓冲(enable_mtp?)\n", il); return false; }
+        if (!g->spec_prefix1_attn_state_kv[il]) { fprintf(stderr, "ds4: 추측 디코드 스냅샷 L%u의 버퍼가 없습니다(enable_mtp?)\n", il); return false; }
         const uint64_t bytes = ds4_gpu_tensor_bytes(g->layer_attn_state_kv[il]);
         /* 攒行环: emit 之后的行会从环头覆盖旧块的 pending 行, 回滚要用 ⇒ 存 pending 段 [last+1-n, last](环上连续) */
         {
@@ -297,7 +297,7 @@ bool metal_graph_dspark_state_snapshot(ds4_gpu_graph *g, uint32_t pos0, uint32_t
 bool metal_graph_dspark_state_restore(ds4_gpu_graph *g, uint32_t acc) {
     metal_graph_token_pending_forget(g);   /* verify 前已作废; 这里再保一次, 计数器回到轮前快照 */
     const uint32_t pos0 = g->spec_pos0;
-    if (acc == 0 || acc > g->spec_k) { fprintf(stderr, "ds4: spec restore: acc %u 非法(k %u)\n", acc, g->spec_k); return false; }
+    if (acc == 0 || acc > g->spec_k) { fprintf(stderr, "ds4: 추측 디코드 복원: acc %u가 유효하지 않습니다(k %u)\n", acc, g->spec_k); return false; }
     for (uint32_t il = 0; il < (uint32_t)DS4_N_LAYER; il++) {
         const uint32_t ratio = ds4_layer_compress_ratio(il);
         if (ratio == 0 || !g->layer_attn_state_kv[il]) continue;

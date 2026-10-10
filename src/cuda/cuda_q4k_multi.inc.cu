@@ -120,11 +120,11 @@ static int q4k_shm_plan(K kern, size_t base, size_t x_bytes, size_t *shm) {   /*
         const cudaError_t e = cudaFuncSetAttribute(kern, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)(base + x_bytes));
         if (e == cudaSuccess) { *shm = base + x_bytes; return 1; }
         static int warned = 0;   /* 退回读全局的路慢 2~3×, 必须看得见 */
-        if (!warned++) fprintf(stderr, "ds4: q4k 小批核 shared 放行失败(%zu B, 上限 %zu): %s; 激活改读全局\n",
+        if (!warned++) fprintf(stderr, "ds4: q4k 소규모 배치 커널 공유 메모리 확보 실패(%zu B, 한도 %zu): %s; 활성값은 전역 메모리에서 읽습니다\n",
                                base + x_bytes, q4k_shm_optin(), cudaGetErrorString(e));
     } else {
         static int warned2 = 0;
-        if (!warned2++) fprintf(stderr, "ds4: q4k 小批核 shared 需 %zu B 超上限 %zu; 激活改读全局\n", base + x_bytes, q4k_shm_optin());
+        if (!warned2++) fprintf(stderr, "ds4: q4k 소규모 배치 커널에 필요한 공유 메모리 %zu B가 한도 %zu를 초과해 활성값을 전역 메모리에서 읽습니다\n", base + x_bytes, q4k_shm_optin());
     }
     (void)cudaGetLastError();
     *shm = base; return 0;
@@ -190,7 +190,7 @@ __global__ static void q4k_rows_q8_0_multi_kernel(float *out, const char *w, con
 }
 static int q4k_rows_q8_0_multi_launch(float *out, const char *w, const int8_t *xq, const float *xs, uint32_t kblocks,
                                       uint32_t out_dim, uint32_t n_tok) {
-    if (kblocks > 32u) { fprintf(stderr, "ds4: q4k rows q8_0 multi: 行 %u 块超过 32(整行 stage 上限)\n", kblocks); return 0; }
+    if (kblocks > 32u) { fprintf(stderr, "ds4: q4k rows q8_0 배치: 행당 %u블록이 32를 초과했습니다(행 전체 스테이징 한도)\n", kblocks); return 0; }
     unsigned g = (out_dim + 7u) / 8u;
     if (g > ds4_grid_cap()) g = ds4_grid_cap();
     size_t shm = 0;
@@ -203,7 +203,7 @@ static int q4k_rows_q8_0_multi_launch(float *out, const char *w, const int8_t *x
 }
 static int q4k_rows_multi_launch(float *out, const char *w, const cuda_block_q8_K *xq, uint32_t blocks,
                                  uint32_t out_dim, uint32_t n_tok) {
-    if (blocks > 32u) { fprintf(stderr, "ds4: q4k rows multi: 行 %u 块超过 32(整行 stage 上限)\n", blocks); return 0; }
+    if (blocks > 32u) { fprintf(stderr, "ds4: q4k rows 배치: 행당 %u블록이 32를 초과했습니다(행 전체 스테이징 한도)\n", blocks); return 0; }
     unsigned g = (out_dim + 7u) / 8u;
     if (g > ds4_grid_cap()) g = ds4_grid_cap();
     size_t shm = 0;
@@ -234,7 +234,7 @@ static int q4k_tile_multi_launch(float *out, const char *w, const cuda_block_q8_
 static int q4k_tile_grouped_launch(float *low, const char *w, const int8_t *xq, const float *xs, uint32_t blocks,
                                    uint32_t rank, uint32_t n_groups, uint32_t n_tok) {
     const uint32_t R = 32u / blocks;
-    if (rank % R != 0u) { fprintf(stderr, "ds4: q4k grouped tile: rank %u 不是 %u 的倍数\n", rank, R); return 0; }
+    if (rank % R != 0u) { fprintf(stderr, "ds4: q4k 그룹형 타일: 랭크 %u가 %u의 배수가 아닙니다\n", rank, R); return 0; }
     const unsigned gx = q4k_tile_grid(n_groups * rank / R);
     switch (blocks) {
         case 4u:  ds4_launch_pdl(q4k_tile_grouped_multi_kernel<4u>, gx, 256, Q4K_TILE_SHM, g_cur_stream, low, w, xq, xs, rank, n_groups, n_tok); break;

@@ -167,15 +167,15 @@ int ds4_engine_open(ds4_engine **out, const ds4_engine_options *opt) {
                 }
                 free(ftlist);
                 if (!nfile) {
-                    fprintf(stderr, "ds4: --finetune %s 里没有可用路径 -- aborting\n", ft_path);
+                    fprintf(stderr, "ds4: --finetune %s에 사용할 수 있는 경로가 없어 중단합니다\n", ft_path);
                     exit(1);
                 }
                 /* ★措辞要说清是内存内★: 早先这里写 "merged into zchain", 读起来像把微调写进了
                  * zchain.bin —— 实际是进程内把载荷按秩拼成一个更宽的 z^L 喂 kernel,
                  * zchain.bin 是 PROT_READ|MAP_PRIVATE 只读映射, 全程只 memcpy 出来不写回。
                  * 盘上永远是各自独立的文件, 删掉微调即回到"量化+zchain"。 */
-                fprintf(stderr, "ds4: finetune %s 已挂载(%d 个文件, 内存内按秩拼接 %d 层; "
-                                "zchain.bin 只读未改动)\n", ft_path, nfile, n);
+                fprintf(stderr, "ds4: 미세조정 %s 적용 완료(파일 %d개, 메모리에서 랭크별로 %d레이어 결합; "
+                                "zchain.bin은 읽기 전용으로 유지)\n", ft_path, nfile, n);
             }
         /* 第4文件(2026-08-20 用户四文件设计): drafter 反修放大器侧车 --draft-zchain。
          * 3 层链(mtp.0/1/2)合并进主链尾部槽 43..45 ⇒ 单 GPU 表一次上传;
@@ -333,7 +333,7 @@ int ds4_engine_open(ds4_engine **out, const ds4_engine_options *opt) {
          * set 直读不存在的专家 span → 崩。双机切层后 planned<budget 时 AUTO 会误选 resident,
          * 故 VQ blob 恒强制 offload。 */
         if (g_vq_experts_blob && !expert_offload_requested) {
-            fprintf(stderr, "ds4: VQ blob 专家: 强制 offload(CPU gather 是唯一前向路径, 覆盖 AUTO resident)\n");
+            fprintf(stderr, "ds4: VQ blob 전문가: 오프로딩 강제(CPU gather만 순방향 경로를 지원하므로 AUTO 상주 설정 무시)\n");
             expert_offload_requested = true;
         }
         ds4_gpu_set_expert_offload(expert_offload_requested ? 1 : 0);

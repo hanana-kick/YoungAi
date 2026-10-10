@@ -36,7 +36,7 @@ bool metal_graph_comp_project_pending(
         uint32_t         *pos0_out) {
     const uint32_t n = g->comp_x_pending[il];
     if (n == 0 || n > ratio || !g->comp_x_ring[il] || !kv_weight || !gate_weight) {
-        fprintf(stderr, "ds4: comp project_pending L%u: 攒行 %u(ratio %u) 非法或权重缺\n", il, n, ratio);
+        fprintf(stderr, "ds4: 압축 project_pending L%u: 누적 행 %u(ratio %u)가 유효하지 않거나 가중치가 누락됐습니다\n", il, n, ratio);
         return false;
     }
     const uint32_t pos0 = g->comp_x_last_pos[il] + 1u - n;
@@ -58,13 +58,13 @@ bool metal_graph_comp_project_pending(
 bool metal_graph_comp_push_row(ds4_gpu_graph *g, uint32_t il, uint32_t ratio, uint32_t pos, const ds4_gpu_tensor *row) {
     if (!g->comp_x_ring[il] || ratio == 0 || !row) return false;
     if (!ds4_gpu_compressor_ring_push_tensor(g->comp_x_ring[il], pos % ratio, row, DS4_N_EMBD)) {
-        fprintf(stderr, "ds4: comp push_row L%u pos %u: 环 push 失败\n", il, pos);
+        fprintf(stderr, "ds4: 압축 push_row L%u pos %u: 링 버퍼 삽입 실패\n", il, pos);
         return false;
     }
     g->comp_x_pending[il]++;
     g->comp_x_last_pos[il] = pos;
     if (g->comp_x_pending[il] > ratio) {
-        fprintf(stderr, "ds4: comp push_row L%u pos %u: 攒行 %u 超 ratio %u(emit 位没清?)\n", il, pos, g->comp_x_pending[il], ratio);
+        fprintf(stderr, "ds4: 압축 push_row L%u pos %u: 누적 행 %u가 ratio %u를 초과했습니다(emit 플래그 미초기화 가능)\n", il, pos, g->comp_x_pending[il], ratio);
         return false;
     }
     return true;

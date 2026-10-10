@@ -239,7 +239,7 @@ static int v41_q4k_gemv(const void *model_map, uint64_t model_size, uint64_t off
     const uint8_t *w = (const uint8_t *)cuda_model_range_ptr(model_map, off, wbytes, what);
     if (!w) return 0;
     /* 16 B: GEMV 核把块头一条 uint4 读进来(块长 144 是 16 的倍数, 张量起点对齐就处处对齐; GGUF 数据区按 32 B 对齐) */
-    if (((uintptr_t)w & 15u) != 0u) { fprintf(stderr, "ds4: %s q4_K 张量起点未 16 字节对齐\n", what); return 0; }
+    if (((uintptr_t)w & 15u) != 0u) { fprintf(stderr, "ds4: %s q4_K 텐서 시작 주소가 16바이트 정렬되지 않았습니다\n", what); return 0; }
     /* 并行度目标沿用 fp4x32 那支实测出来的 8192(见 cuda_v41_4.inc.cu 的长注释); K 的分段单位是一个
      * 256 元素块, 分不出 ksplit 段就收回来 —— 否则多出来的 warp 一轮都跑不到。 */
     uint32_t ksplit = 1;
@@ -289,7 +289,7 @@ int ds4_gpu_bwd_wcache(int mode) {   /* 契约见 ds4_gpu_bwd.h: 1 = 开新一�
     static uint64_t said;
     if (!mode && g_v41_wc.on && g_v41_wc.head > said) {   /* 一层实际占了多少(只在创新高时说一句): 定 V41_WCACHE_BYTES 的依据 */
         said = g_v41_wc.head;
-        fprintf(stderr, "ds4: [bwd] 层内 bf16 权重缓存: 一层 %u 块 %.0f MB(池 %.0f MB)\n", g_v41_wc.n, (double)said / 1048576.0, (double)V41_WCACHE_BYTES / 1048576.0);
+        fprintf(stderr, "ds4: [역전파] 레이어별 BF16 가중치 캐시: 레이어당 %u블록 %.0f MB(풀 %.0f MB)\n", g_v41_wc.n, (double)said / 1048576.0, (double)V41_WCACHE_BYTES / 1048576.0);
     }
     g_v41_wc.on = mode ? 1 : 0;
     if (mode) { g_v41_wc.n = 0; g_v41_wc.head = 0; }
@@ -335,7 +335,7 @@ static int v41_q4k_gemm(const void *model_map, uint64_t model_size, uint64_t off
     if (off > model_size || nblk * V41_Q4K_BYTES > model_size - off) return 0;
     const uint8_t *w = (const uint8_t *)cuda_model_range_ptr(model_map, off, nblk * V41_Q4K_BYTES, what);
     if (!w) return 0;
-    if (((uintptr_t)w & 3u) != 0u) { fprintf(stderr, "ds4: %s q4_K 张量起点未 4 字节对齐\n", what); return 0; }
+    if (((uintptr_t)w & 3u) != 0u) { fprintf(stderr, "ds4: %s q4_K 텐서 시작 주소가 4바이트 정렬되지 않았습니다\n", what); return 0; }
     /* ★权重暂存按输出维分块, 与 fp4x32 预填路 / 反传转置乘同用 g_v41_wbf、同一个上限 V41_BF16_STAGE_ELEMS★(10-02 夜):
      * 原来整块解进自己的一块暂存 —— 出口头 129280×4096 一解 1.06 GB, 是后训练暂存峰值(2.0 GB)的一半, 而 fp4x32 那条早就分块封顶了(见
      * ds4_gpu_v41_matmul_fp4x32_tensor 的 09-20 实撞)。超上限的只有出口头(分 3 块, 每块的贡献写进输出的不同行, 不累加); 其余矩阵整块一发,

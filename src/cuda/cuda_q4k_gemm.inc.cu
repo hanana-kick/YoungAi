@@ -54,7 +54,7 @@ static int cuda_q4k_wf16_ensure(uint64_t elems) {
     g_q4k_wf16 = NULL; g_q4k_wf16_elems = 0;
     if (cudaMalloc(&g_q4k_wf16, elems * sizeof(__half)) != cudaSuccess) {
         (void)cudaGetLastError();
-        fprintf(stderr, "ds4: q4_K gemm 权重 f16 scratch 分配失败 (%.1f MB)\n",
+        fprintf(stderr, "ds4: q4_K GEMM 가중치 f16 임시 버퍼 할당 실패(%.1f MB)\n",
                 (double)elems * sizeof(__half) / 1048576.0);
         return 0;
     }

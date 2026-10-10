@@ -119,7 +119,7 @@ int ds4_gpu_zchain_rte_set(
         !cuda_ok(cudaMalloc(&g_zc_rt_pv, (size_t)16u * 1024u * sizeof(float)), "rte pv")) return 0;
     uint32_t nr = 0, kmax = 0;
     for (uint32_t l = 0; l < n_layer; l++) { if (k[l]) nr++; if (k[l] > kmax) kmax = k[l]; }
-    fprintf(stderr, "ds4: zchain CUDA route 侧车 armed: %u layers, kmax=%u (%.1f MB)\n",
+    fprintf(stderr, "ds4: zchain CUDA 라우팅 사이드카 활성화: %u레이어, kmax=%u (%.1f MB)\n",
             nr, kmax, total_halves * 2.0 / 1e6);
     return 1;
 }

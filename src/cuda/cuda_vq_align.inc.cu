@@ -23,20 +23,20 @@ static const char *cuda_vq_blob_populate_aligned(const void *model_map, uint64_t
     static uint32_t s_done = 0;
     *flat = 1;
     const uint8_t *hb = (const uint8_t *)model_map + offset;
-    if (!ds4vq_blob_ok(hb, (size_t)bytes)) { fprintf(stderr, "ds4: [vq-align] %s 不是合法 VQ blob, 平拷\n", what); return NULL; }
+    if (!ds4vq_blob_ok(hb, (size_t)bytes)) { fprintf(stderr, "ds4: [vq-align] %s는 유효한 VQ blob이 아니므로 일반 복사를 사용합니다\n", what); return NULL; }
     if (ds4vq_blob_ver(hb) != 3u) return NULL;   /* v2: 载荷自带码本, 这把对齐只为 v3 量过 */
     const uint32_t ns = ds4vq_blob_nexp(hb) * 3u;
     std::vector<std::pair<uint64_t, uint32_t> > pl;   /* (原偏移, 槽号) */
     for (uint32_t k = 0; k < ns; k++) {
         const uint64_t o = ds4vq_slot(hb, (int)(k / 3u), (int)(k % 3u));
         if (!o) continue;
-        if (o + 32u > bytes) { fprintf(stderr, "ds4: [vq-align] %s 槽 %u 偏移越界, 平拷\n", what, k); return NULL; }
+        if (o + 32u > bytes) { fprintf(stderr, "ds4: [vq-align] %s 슬롯 %u의 오프셋 범위 초과, 일반 복사를 사용합니다\n", what, k); return NULL; }
         pl.push_back(std::make_pair(o, k));
     }
     if (pl.empty()) return NULL;
     std::sort(pl.begin(), pl.end());
     const uint64_t first = pl[0].first;
-    if (first < 16u + (uint64_t)ns * 8u) { fprintf(stderr, "ds4: [vq-align] %s 首载荷压着槽表, 平拷\n", what); return NULL; }
+    if (first < 16u + (uint64_t)ns * 8u) { fprintf(stderr, "ds4: [vq-align] %s의 첫 데이터 영역이 슬롯 테이블과 겹쳐 일반 복사를 사용합니다\n", what); return NULL; }
     std::vector<uint64_t> noff(pl.size());
     uint64_t cur = first;
     for (size_t i = 0; i < pl.size(); i++) {
@@ -44,7 +44,7 @@ static const char *cuda_vq_blob_populate_aligned(const void *model_map, uint64_t
         uint32_t mg, rows; uint16_t nc; uint64_t cbo;
         memcpy(&mg, p, 4); memcpy(&nc, p + 6, 2); memcpy(&rows, p + 8, 4); memcpy(&cbo, p + 24, 8);
         if (mg != DS4VQ_MAT3_MAGIC || (i && pl[i].first == pl[i - 1].first) || cbo + (uint64_t)nc * 8u > first) {
-            fprintf(stderr, "ds4: [vq-align] %s 槽 %u 不满足挪动前提(魔数/共用载荷/码本不在前缀), 平拷\n", what, pl[i].second);
+            fprintf(stderr, "ds4: [vq-align] %s 슬롯 %u가 재배치 조건을 충족하지 않습니다(매직 값/공유 데이터/코드북 위치). 일반 복사 사용\n", what, pl[i].second);
             return NULL;
         }
         const uint64_t lead = (32u + (uint64_t)rows * 2u) & 127u;   /* 载荷头到位流的距离 mod 128 */
@@ -58,7 +58,7 @@ static const char *cuda_vq_blob_populate_aligned(const void *model_map, uint64_t
     cudaError_t err = cudaMalloc(&dev, (size_t)total);
     if (err != cudaSuccess) {
         (void)cudaGetLastError();
-        fprintf(stderr, "ds4: [vq-align] %s 分配 %.2f MiB 失败: %s\n", what, (double)total / 1048576.0, cudaGetErrorString(err));
+        fprintf(stderr, "ds4: [vq-align] %s 할당 실패(%.2f MiB): %s\n", what, (double)total / 1048576.0, cudaGetErrorString(err));
         return NULL;
     }
     char *d = (char *)dev;
@@ -73,7 +73,7 @@ static const char *cuda_vq_blob_populate_aligned(const void *model_map, uint64_t
     }
     if (err == cudaSuccess) err = cudaMemcpy(d + 16, tab.data(), (size_t)ns * 8u, cudaMemcpyHostToDevice);   /* 槽表最后写: 前缀那次拷的是旧表 */
     if (err != cudaSuccess) {
-        fprintf(stderr, "ds4: [vq-align] %s 拷贝失败: %s\n", what, cudaGetErrorString(err));
+        fprintf(stderr, "ds4: [vq-align] %s 복사 실패: %s\n", what, cudaGetErrorString(err));
         (void)cudaGetLastError(); (void)cudaFree(dev);
         return NULL;
     }
@@ -81,7 +81,7 @@ static const char *cuda_vq_blob_populate_aligned(const void *model_map, uint64_t
     g_model_range_by_offset[offset] = g_model_ranges.size() - 1u;
     g_model_range_bytes += total;
     if (s_done++ == 0)
-        fprintf(stderr, "ds4: [vq-align] 专家 blob 载荷挪到位流 128 B 对齐(设备副本; 首个 %s: %zu 个载荷, 多占 %.1f KB)\n",
+        fprintf(stderr, "ds4: [vq-align] 전문가 blob 데이터를 비트스트림 기준 128 B 정렬로 재배치했습니다(GPU 복사본; 첫 항목 %s: 데이터 %zu개, 추가 %.1f KB)\n",
                 what, pl.size(), (double)(total - bytes) / 1024.0);
     return d;
 }

@@ -50,7 +50,7 @@ static int vqp_grow(void **p, uint64_t *cap, uint64_t need, size_t elem, const c
     *p = NULL; *cap = 0;
     if (cudaMalloc(p, need * elem) != cudaSuccess) {
         (void)cudaGetLastError();
-        fprintf(stderr, "ds4: [vq-prefill] %s 分配失败 (%.1f MB)\n", what, (double)need * elem / 1048576.0);
+        fprintf(stderr, "ds4: [vq-prefill] %s 할당 실패(%.1f MB)\n", what, (double)need * elem / 1048576.0);
         return 0;
     }
     *cap = need;
@@ -117,14 +117,14 @@ static int vqp_hdr_build(uint32_t layer, const uint8_t *blob, uint32_t n_total,
         /* 期望的载荷魔数按【盘上版本】定(2026-09-21): v3 的载荷是 'DQV3'(布局不同, 见 cuda_vq_row.inc.cu)。
          * 写死 v2 的话 v3 文件会在这里报"头错"并 abort —— 那倒是安全的失败, 但预填就整个不可用了。 */
         if (d[2] != (ver == 3u ? DS4VQ_MAT3_MAGIC : DS4VQ_MAT_MAGIC) || d[4] != exp_rows || d[5] != exp_cols) {
-            fprintf(stderr, "ds4: [vq-prefill] L%u e=%u which=%u 头错(magic %08x %u×%u, 期 %u×%u) -- aborting\n",
+            fprintf(stderr, "ds4: [vq-prefill] L%u e=%u which=%u 헤더 오류(magic %08x %u×%u, 예상 %u×%u). 중단합니다\n",
                     layer, e, which, d[2], d[4], d[5], exp_rows, exp_cols);
             bad = 1; break;
         }
         /* 48 KB 是 fused2(dim4) 把码本搬 shared 的上限; 本路的 vq_dequant_kernel 码本走全局读, 不受限。
          * V4.1 dim8×nc4096 码本 64 KB 正好踩线(2026-09-12), 只对 dim==4 仍按 fused2 口径把关。 */
         if (d16 == 4u && (size_t)n16 * d16 * 2u > 48u * 1024u) {
-            fprintf(stderr, "ds4: [vq-prefill] L%u e=%u 码本 %u×%u 超 shared 上限 48KB -- aborting\n", layer, e, n16, d16);
+            fprintf(stderr, "ds4: [vq-prefill] L%u e=%u 코드북 %u×%u가 공유 메모리 한도 48KB를 초과했습니다. 중단합니다\n", layer, e, n16, d16);
             bad = 1; break;
         }
         uint32_t nb = 0; while ((1u << nb) < n16) nb++; if (nb < 1u) nb = 1u;
@@ -143,7 +143,7 @@ static int cuda_vq_moe_prefill_gemm(
         const ds4_gpu_tensor *selected, const ds4_gpu_tensor *weights,
         uint32_t n_total_expert, uint32_t n_expert, float clamp,
         const ds4_gpu_tensor *x, uint32_t layer_index, uint32_t n_tokens, uint32_t ver) {
-    if (!g_cublas_ready) { fprintf(stderr, "ds4: [vq-prefill] cuBLAS 未就绪 (L%u)\n", layer_index); return 0; }
+    if (!g_cublas_ready) { fprintf(stderr, "ds4: [vq-prefill] cuBLAS 초기화되지 않음(L%u)\n", layer_index); return 0; }
     if (!vqp_hdr_build(layer_index, blob, n_total_expert, IN, MID, OUT, ver)) return 0;
     const vqp_slot_hdr *tab = g_vqp_hdr[layer_index];
     const uint64_t npair = (uint64_t)n_tokens * n_expert;
@@ -199,7 +199,7 @@ static int cuda_vq_moe_prefill_gemm(
             if (!cnt[e]) continue;
             const vqp_slot_hdr *h1 = &tab[(size_t)e * 3u];
             if (!h1->off || !(h1 + 1)->off || !(h1 + 2)->off) {
-                fprintf(stderr, "ds4: [vq-prefill] L%u e=%u 槽缺失(w1/w3/w2) -- aborting (no silent quality downgrade)\n",
+                fprintf(stderr, "ds4: [vq-prefill] L%u e=%u 슬롯 누락(w1/w3/w2). 품질 저하 방지를 위해 중단합니다\n",
                         layer_index, e);
                 bad = 1;
             }
@@ -234,11 +234,11 @@ int ds4_gpu_v41_vq_capture_expert_out(float *host, uint32_t n_tok, uint32_t n_us
      * 那条路不物化 ys)。宁可返回 0 让上层硬失败, 也不给一块"能用但对不上号"的数。 */
     if (!host || n_tok != g_vqp_last_tok || n_used != g_vqp_last_used || out_dim != g_vqp_last_out) return 0;
     const uint64_t npair = (uint64_t)n_tok * n_used, nel = npair * out_dim;
-    if (!vqp_grow((void **)&g_vqp_cap, &g_vqp_cap_n, nel, sizeof(float), "vq 取料展开")) return 0;
+    if (!vqp_grow((void **)&g_vqp_cap, &g_vqp_cap_n, nel, sizeof(float), "VQ 데이터 전개")) return 0;
     float *dev = g_vqp_cap;
     vqp_expand_pairs_kernel<<<dim3((out_dim + 255u) / 256u, (unsigned)npair), 256, 0, g_cur_stream>>>(
         dev, g_vqp.ys, g_vqp.inv, n_used, out_dim);
-    if (!cuda_ok(cudaGetLastError(), "vq 取料展开")) return 0;
+    if (!cuda_ok(cudaGetLastError(), "VQ 데이터 전개")) return 0;
     if (cudaStreamSynchronize(g_cur_stream) != cudaSuccess) { (void)cudaGetLastError(); return 0; }
     if (cudaMemcpy(host, dev, (size_t)nel * 4, cudaMemcpyDeviceToHost) != cudaSuccess) { (void)cudaGetLastError(); return 0; }
     return 1;

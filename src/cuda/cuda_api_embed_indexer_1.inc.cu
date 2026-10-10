@@ -70,7 +70,7 @@ static const float *indexer_rows_f32(const ds4_gpu_tensor *index_comp, uint32_t 
         cudaStreamCaptureStatus cs = cudaStreamCaptureStatusNone;
         (void)cudaStreamIsCapturing(0, &cs);
         if (cs != cudaStreamCaptureStatusNone) {
-            fprintf(stderr, "ds4: indexer f32 view: 捕获态里要增长暂存(%u 行), --quality 下不该发生\n", n_comp);
+            fprintf(stderr, "ds4: 인덱서 f32 뷰: 캡처 중 임시 버퍼(%u행) 확장이 필요합니다(--quality에서는 발생해서는 안 됨)\n", n_comp);
             return NULL;
         }
         (void)cudaDeviceSynchronize();
@@ -113,7 +113,7 @@ static int indexer_scores_launch(
             if (cudaFuncSetAttribute(indexer_score_one_wmma_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
                                      (int)DS4_IDX1_SMEM) != cudaSuccess) {
                 (void)cudaGetLastError();
-                fprintf(stderr, "ds4: indexer wmma decode kernel: 动态 shared %zu B 抬不上去\n", DS4_IDX1_SMEM);
+                fprintf(stderr, "ds4: 인덱서 WMMA 디코드 커널: 동적 공유 메모리 %zu B를 확보할 수 없습니다\n", DS4_IDX1_SMEM);
                 return 0;
             }
             idx1_attr = 1;
@@ -142,7 +142,7 @@ static int indexer_scores_launch(
             if (cudaFuncSetAttribute(indexer_score_tokn_mma_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
                                      (int)DS4_IDXT_SMEM) != cudaSuccess) {
                 (void)cudaGetLastError();
-                fprintf(stderr, "ds4: indexer tokn mma kernel: 动态 shared %zu B 抬不上去\n", DS4_IDXT_SMEM);
+                fprintf(stderr, "ds4: 인덱서 토큰 MMA 커널: 동적 공유 메모리 %zu B를 확보할 수 없습니다\n", DS4_IDXT_SMEM);
                 return 0;
             }
             idxt_attr = 1;
@@ -163,7 +163,7 @@ static int indexer_scores_launch(
             if (cudaFuncSetAttribute(indexer_scores_prefill_wmma_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
                                      (int)DS4_IDXP_SMEM) != cudaSuccess) {
                 (void)cudaGetLastError();
-                fprintf(stderr, "ds4: indexer prefill wmma kernel: 动态 shared %zu B 抬不上去(设备上限 %d B)\n",
+                fprintf(stderr, "ds4: 인덱서 프리필 WMMA 커널: 동적 공유 메모리 %zu B 확보 실패(GPU 한도 %d B)\n",
                         DS4_IDXP_SMEM, optin);
                 return 0;
             }

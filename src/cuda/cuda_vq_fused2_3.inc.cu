@@ -99,7 +99,7 @@ static int cuda_vq_moe_forward(
         /* 融合路: 不需要任何 dequant scratch, 只要 h 的中间缓冲 */
         const uint64_t hneed = npair * expert_mid_dim * sizeof(float);
         if (!mid_scratch || mid_scratch->bytes < hneed) {
-            fprintf(stderr, "ds4: [cuda-vq-fuse] mid scratch %llu < 需要 %llu (L%u)\n",
+            fprintf(stderr, "ds4: [cuda-vq-fuse] 중간 임시 버퍼 %llu < 필요 %llu (L%u)\n",
                     (unsigned long long)(mid_scratch ? mid_scratch->bytes : 0),
                     (unsigned long long)hneed, layer_index);
             return 0;

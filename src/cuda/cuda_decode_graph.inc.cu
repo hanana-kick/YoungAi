@@ -18,7 +18,7 @@ int ds4_gpu_decode_graph_capture_begin(void) {
         return 0;   /* 已经在别的捕获里(V4 token 图那族), 不嵌套 */
     }
     if (cudaStreamBeginCapture(cudaStreamPerThread, cudaStreamCaptureModeThreadLocal) != cudaSuccess) {
-        fprintf(stderr, "ds4: [graph] 开捕获失败: %s\n", cudaGetErrorString(cudaGetLastError()));
+        fprintf(stderr, "ds4: [graph] 캡처 시작 실패: %s\n", cudaGetErrorString(cudaGetLastError()));
         return 0;
     }
     return 1;
@@ -67,7 +67,7 @@ static int decode_graph_pdl_edges(cudaGraph_t graph) {
         n++;
     }
     free(from); free(to); free(ed);
-    if (bad) { fprintf(stderr, "ds4: [graph] PDL 改边失败: %s\n", cudaGetErrorString(cudaGetLastError())); return -1; }
+    if (bad) { fprintf(stderr, "ds4: [graph] PDL 간선 변경 실패: %s\n", cudaGetErrorString(cudaGetLastError())); return -1; }
     if (skipped) g_v41_pdl_skipped += skipped;
     return n;
 }
@@ -76,7 +76,7 @@ void *ds4_gpu_decode_graph_capture_end(void) {
     cudaGraph_t graph = NULL;
     const cudaError_t e = cudaStreamEndCapture(cudaStreamPerThread, &graph);
     if (e != cudaSuccess || !graph) {
-        fprintf(stderr, "ds4: [graph] 捕获作废: %s\n", cudaGetErrorString(e));
+        fprintf(stderr, "ds4: [graph] 캡처 무효화: %s\n", cudaGetErrorString(e));
         (void)cudaGetLastError();
         if (graph) (void)cudaGraphDestroy(graph);
         return NULL;
@@ -89,11 +89,11 @@ void *ds4_gpu_decode_graph_capture_end(void) {
     const cudaError_t ei = cudaGraphInstantiate(&exec, graph, 0);
     (void)cudaGraphDestroy(graph);
     if (ei != cudaSuccess || !exec) {
-        fprintf(stderr, "ds4: [graph] 实例化失败(%zu 节点): %s\n", n_nodes, cudaGetErrorString(ei));
+        fprintf(stderr, "ds4: [graph] 그래프 인스턴스 생성 실패(노드 %zu개): %s\n", n_nodes, cudaGetErrorString(ei));
         (void)cudaGetLastError();
         return NULL;
     }
-    fprintf(stderr, "ds4: [graph] 解码整步已捕获: %zu 个节点(其中 %d 条边改成 PDL 程序化边, 累计 %llu 条不支持的保持普通)\n", n_nodes, n_pdl, (unsigned long long)g_v41_pdl_skipped);
+    fprintf(stderr, "ds4: [graph] 디코드 전체 단계 캡처 완료: 노드 %zu개(간선 %d개는 PDL 간선으로 변환, 미지원 간선 %llu개는 일반 방식 유지)\n", n_nodes, n_pdl, (unsigned long long)g_v41_pdl_skipped);
     return (void *)exec;
 }
 
@@ -160,7 +160,7 @@ int ds4_gpu_tensor_write_zerocopy(ds4_gpu_tensor *t, uint64_t offset, const void
     void *dev = NULL;
     if (cudaHostGetDevicePointer(&dev, (void *)pinned, 0) != cudaSuccess || !dev) {
         (void)cudaGetLastError();
-        fprintf(stderr, "ds4: [graph] pinned 内存拿不到设备地址(要 cudaHostAllocMapped)\n");
+        fprintf(stderr, "ds4: [graph] 고정 메모리의 GPU 주소를 얻지 못했습니다(cudaHostAllocMapped 필요)\n");
         return 0;
     }
     const uint32_t nw = (uint32_t)(bytes / 4u);

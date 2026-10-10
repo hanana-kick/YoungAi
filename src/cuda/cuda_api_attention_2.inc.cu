@@ -221,7 +221,7 @@ int ds4_gpu_attention_output_q4k_batch_tensor(
     }
     /* 09-07: 小批(< GEMM 阈值)同解码路: q8_0 激活(n_tokens×n_groups 行, 精度不变) + 分组 tile 核, grid.y = token */
     if (!q4k_tile_supported((uint32_t)kblocks, (uint32_t)low_dim)) {
-        fprintf(stderr, "ds4: attn_output_a q4_K batch: 每行 %llu 块/低维 %llu 不在 tile 核支持的形状\n",
+        fprintf(stderr, "ds4: attn_output_a q4_K 배치: 행당 %llu블록/하위 차원 %llu는 타일 커널에서 지원하지 않는 형상입니다\n",
                 (unsigned long long)kblocks, (unsigned long long)low_dim);
         return 0;
     }

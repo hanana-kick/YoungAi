@@ -309,7 +309,7 @@ static int ds4_sparse_attn_mma_launch(float *o, const float *q, const float *kvw
         s_ok = cudaFuncSetAttribute(ds4_sparse_attn_mma_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
                                     (int)smem) == cudaSuccess ? 1 : -1;
         (void)cudaGetLastError();
-        fprintf(stderr, "ds4: [attn] 张量核版 shared %zu KB %s\n", smem >> 10, s_ok == 1 ? "已开" : "★抬不上去, 回标量版★");
+        fprintf(stderr, "ds4: [attn] 텐서 코어 커널 공유 메모리 %zu KB: %s\n", smem >> 10, s_ok == 1 ? "활성화" : "확보 실패, 스칼라 커널로 전환");
     }
     if (s_ok != 1) return 0;
     ds4_sparse_attn_mma_kernel<<<dim3(n_tok, n_head / DS4_ATTN_MMA_HEADS), DS4_ATTN_MMA_WARPS * 32u, smem, g_cur_stream>>>(

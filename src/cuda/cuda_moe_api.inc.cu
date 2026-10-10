@@ -24,7 +24,7 @@ int ds4_gpu_routed_moe_batch_tensor(ds4_gpu_tensor *out, ds4_gpu_tensor *gate, d
     /* TP Phase-3 专家切分是双机拆模型用的; CUDA 走单机整模型, 没有对端可 all-reduce。
      * 非平凡切分直接拒绝, 不能只算半边专家却当成完整输出。 */
     if (slot_count != 0u && slot_count != n_expert) {
-        fprintf(stderr, "ds4: CUDA 不支持 TP 专家切分 (slot_start=%u slot_count=%u n_expert=%u)\n",
+        fprintf(stderr, "ds4: CUDA는 TP 전문가 분할을 지원하지 않습니다(slot_start=%u slot_count=%u n_expert=%u)\n",
                 slot_start, slot_count, n_expert);
         return 0;
     }

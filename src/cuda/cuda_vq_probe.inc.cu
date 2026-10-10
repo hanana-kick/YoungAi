@@ -54,6 +54,6 @@ static void v41_f16range_probe(const float *src, const uint16_t *b16, uint64_t n
     if (cudaMemcpy(h, c, 32, cudaMemcpyDeviceToHost) != cudaSuccess) return;
     for (int i = 0; i < 4; i++) tot[slot][i] += h[i];
     if ((++calls[slot] % 200u) == 0u)   /* 一步 40 层 ⇒ 每 5 步一行 */
-        fprintf(stderr, "[f16-range] 累计 %s: 溢出 %llu / 次正规 %llu / 归零 %llu / 共 %llu 个元素\n",
+        fprintf(stderr, "[f16-range] 누적 %s: 오버플로 %llu / 비정규 수 %llu / 0으로 변환 %llu / 전체 원소 %llu개\n",
                 what, tot[slot][0], tot[slot][1], tot[slot][2], tot[slot][3]);
 }

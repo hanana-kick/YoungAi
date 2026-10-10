@@ -239,14 +239,14 @@ static void tensor_expect_f16_q2(const ds4_model *m, ds4_tensor *t, uint64_t d0,
         tensor_expect_layout(t, DS4_TENSOR_Q2_K, 2, d0, d1, 0);
 #ifndef DS4_NO_GPU
         if (!ds4_gpu_register_q2k_f16_shadow(m->map, m->size, t->abs_offset, d1, d0))
-            ds4_die("全q2: f16 影子注册失败(行长须为256倍数且显存足)");
+            ds4_die("전체 Q2: f16 섀도 텐서 등록 실패(행 길이가 256의 배수여야 하며 GPU 메모리가 충분해야 합니다)");
         /* 数据面已由影子替换成 f16(range_ptr 按 offset 命中优先于一切界检), 类型面必须
          * 跟着翻——图编码把 t->type 一路传给 GPU 分发, 留着 q2_k 会被 f16 专线 kernel
          * 拒收(L2 首个压缩层 attention_batch 静默失败即此)。t->bytes 保持文件真值,
          * span/mmap 账仍按 q2 字节算。 */
         t->type = DS4_TENSOR_F16;
 #else
-        ds4_die("全q2 模型的 f16 专线家族需 GPU 后端(CPU 参考未适配)");
+        ds4_die("전체 Q2 모델의 f16 전용 경로에는 GPU 백엔드가 필요합니다(CPU 참조 경로 미지원)");
 #endif
     } else {
         tensor_expect_layout(t, DS4_TENSOR_F16, 2, d0, d1, 0);

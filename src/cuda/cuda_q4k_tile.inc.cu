@@ -116,7 +116,7 @@ static int q4k_tile_pair_launch(float *out0, float *out1, const char *w0, const 
 static int q4k_hc_expand_launch(float *out_hc, float *block_out, const float *residual_hc, const float *split,
                                 const char *w, const int8_t *xq, const float *xs, uint32_t kblocks, uint32_t out_dim,
                                 uint32_t n_embd, uint32_t n_hc) {
-    if (kblocks > 32u) { fprintf(stderr, "ds4: q4k hc expand: 行 %u 块超过 32(整行 stage 上限)\n", kblocks); return 0; }
+    if (kblocks > 32u) { fprintf(stderr, "ds4: q4k hc 확장: 행당 %u블록이 32를 초과했습니다(행 전체 스테이징 한도)\n", kblocks); return 0; }
     const unsigned g = q4k_tile_grid(out_dim);
     const size_t shm = (size_t)8u * kblocks * 9u * sizeof(uint4) + (size_t)kblocks * (256u + 32u + 32u);   /* 权重 stage + 激活/尺度/Σq8 */
     ds4_launch_pdl(q4k_hc_expand_kernel, g, 256, shm, g_cur_stream,

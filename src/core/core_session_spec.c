@@ -11,23 +11,23 @@ static struct {
 void ds4_spec_stats_print(void) {
     const uint64_t R = g_spec_stats.rounds_spec, R0 = g_spec_stats.rounds_plain;
     if (R + R0 == 0) return;
-    fprintf(stderr, "ds4: spec 账: 投机轮 %llu (token %llu, 均接受 %.2f, %.1f ms/轮 = %.1f ms/token)",
+    fprintf(stderr, "ds4: 추측 디코드 통계: %llu라운드(%llu토큰, 평균 수락 %.2f, %.1f ms/라운드 = %.1f ms/token)",
             (unsigned long long)R, (unsigned long long)g_spec_stats.tok_spec,
             R ? (double)g_spec_stats.tok_spec / (double)R : 0.0,
             R ? g_spec_stats.ms_spec / (double)R : 0.0,
             g_spec_stats.tok_spec ? g_spec_stats.ms_spec / (double)g_spec_stats.tok_spec : 0.0);
-    fprintf(stderr, " | 纯解码轮 %llu (%.1f ms/token)", (unsigned long long)R0,
+    fprintf(stderr, " | 일반 디코드 %llu라운드(%.1f ms/token)", (unsigned long long)R0,
             R0 ? g_spec_stats.ms_plain / (double)R0 : 0.0);
-    fprintf(stderr, " | 每轮 draft %.1f verify %.1f 恢复 %.1f ms | 崩轮 %llu\n",
+    fprintf(stderr, " | 라운드당 초안 %.1f, 검증 %.1f, 복구 %.1f ms | 실패 라운드 %llu\n",
             R ? g_spec_stats.ms_draft / (double)R : 0.0, R ? g_spec_stats.ms_verify / (double)R : 0.0,
             R ? g_spec_stats.ms_restore / (double)R : 0.0, (unsigned long long)g_spec_stats.crash_rounds);
-    fprintf(stderr, "ds4: spec 逐位接受率:");
+    fprintf(stderr, "ds4: 추측 디코드 토큰별 수락률:");
     for (int i = 0; i < 8; i++)
         if (g_spec_stats.pos_test[i])
             fprintf(stderr, " p%d=%.3f(n=%llu)", i + 1,
                     (double)g_spec_stats.pos_hit[i] / (double)g_spec_stats.pos_test[i],
                     (unsigned long long)g_spec_stats.pos_test[i]);
-    fprintf(stderr, " | 候选数分布:");
+    fprintf(stderr, " | 후보 수 분포:");
     for (int k = 0; k < 8; k++)
         if (g_spec_stats.k_hist[k]) fprintf(stderr, " k%d×%llu", k, (unsigned long long)g_spec_stats.k_hist[k]);
     fprintf(stderr, "\n");

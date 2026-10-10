@@ -109,9 +109,9 @@ void cap_batch_layer(ds4_gpu_graph *g, uint32_t il, uint32_t n_tokens) {
 }
 
 /* ---- 反修百分百还原判决钩(--amp-anchor, 2026-08-19) ----------------------
- * 判决实验专用, 不进产线: 把反修解算时的输入条件在线还原 — zchain(放大器)的 x 用
- * 解算锚(DQA2)的 FP fin; --amp-anchor-route 时路由(selected/weights)也钉锚
- * ridx/rw。用于把"解算产物/引擎应用有病"与"解算口径 vs 在线口径漂移"分开归因。
+ * 判决实验专用, 不进产线: 把反修解算时的输入条件실시간还原 — zchain(放大器)的 x 用
+ * 解算锚(DQA2)的 FP fin; --amp-anchor-route 时路由(selected/weights)也고정 앵커
+ * ridx/rw。用于把"解算产物/引擎应用有病"与"解算口径 vs 실시간口径漂移"分开归因。
  * 只挂 decode 路(score 链除首 token 外全走这里; 首 token 批路不钉, 偏差 1/S 在案)。 */
 ds4_ampanc_state g_ampanc;
 
@@ -133,7 +133,7 @@ int ampanc_on(void) {
     if (g_ampanc.dim != DS4_N_EMBD || g_ampanc.nact != DS4_N_EXPERT_USED ||
         (uint64_t)st.st_size < 40u + (uint64_t)g_ampanc.nl * g_ampanc.S *
             (4ull * g_ampanc.dim + 8ull * g_ampanc.nact)) {
-        fprintf(stderr, "ds4: AMP_ANCHOR 头/长度不合, 拒绝\n");
+        fprintf(stderr, "ds4: AMP_ANCHOR의 헤더/길이가 맞지 않아 거부합니다\n");
         return 0;
     }
     const uint8_t *q = (const uint8_t *)m + 40;
@@ -144,8 +144,8 @@ int ampanc_on(void) {
     g_ampanc.rw = (const float *)q;
     g_ampanc.route_on = ds4_tool_amp_anchor_route();
     g_ampanc.state = 1;
-    fprintf(stderr, "ds4: AMP_ANCHOR armed: S=%u NL=%u x=钉锚 route=%s (判决钩)\n",
-            g_ampanc.S, g_ampanc.nl, g_ampanc.route_on ? "钉锚" : "在线");
+    fprintf(stderr, "ds4: AMP_ANCHOR 활성화: S=%u NL=%u x=고정 앵커 route=%s (평가 콜백)\n",
+            g_ampanc.S, g_ampanc.nl, g_ampanc.route_on ? "고정 앵커" : "실시간");
     return 1;
 }
 

@@ -102,7 +102,7 @@ static const size_t V41_LT_WS = 64u << 20;
 static int v41_gemm_nvfp4(const uint8_t *Anib, const uint8_t *Asc, const uint8_t *Bnib, const uint8_t *Bsc,
                           float *D, int m, int n, int k, int ldd, const char *what) {
     if (!g_v41_lt_ws && cudaMalloc(&g_v41_lt_ws, V41_LT_WS) != cudaSuccess) {
-        (void)cudaGetLastError(); fprintf(stderr, "ds4: [v41] NVFP4 工作区分配失败\n"); return 0;
+        (void)cudaGetLastError(); fprintf(stderr, "ds4: [v41] NVFP4 작업 공간 할당 실패\n"); return 0;
     }
     /* cublasHandle_t 与 cublasLtHandle_t 是同一个对象, 官方文档允许直接转型 —— 不另建 Lt 句柄,
      * 免得两套句柄各挂一条流(V4.1 全链一条流, 见 v41_cublas_stream 的注释) */
@@ -121,7 +121,7 @@ static int v41_gemm_nvfp4(const uint8_t *Anib, const uint8_t *Asc, const uint8_t
     ok &= cublasLtMatrixLayoutCreate(&la, CUDA_R_4F_E2M1, (uint64_t)k, (uint64_t)m, (int64_t)k) == CUBLAS_STATUS_SUCCESS;
     ok &= cublasLtMatrixLayoutCreate(&lb, CUDA_R_4F_E2M1, (uint64_t)k, (uint64_t)n, (int64_t)k) == CUBLAS_STATUS_SUCCESS;
     ok &= cublasLtMatrixLayoutCreate(&ld, CUDA_R_32F, (uint64_t)m, (uint64_t)n, (int64_t)ldd) == CUBLAS_STATUS_SUCCESS;
-    if (!ok) fprintf(stderr, "ds4: [v41] %s NVFP4 描述符建失败\n", what);
+    if (!ok) fprintf(stderr, "ds4: [v41] %s NVFP4 디스크립터 생성 실패\n", what);
     if (ok) {
         for (int i = 0; i < g_v41_lt_n; i++)
             if (g_v41_lt[i].m == m && g_v41_lt[i].n == n && g_v41_lt[i].k == k && g_v41_lt[i].ldd == ldd) { slot = i; break; }
@@ -137,10 +137,10 @@ static int v41_gemm_nvfp4(const uint8_t *Anib, const uint8_t *Asc, const uint8_t
         }
         if (nh == 0) {
             /* 不退 f16: 悄悄退回去就永远不知道哪条路在跑(禁兜底铁律), 而且速度读数会成谜 */
-            fprintf(stderr, "ds4: [v41] %s NVFP4 无可用算法 (m=%d n=%d k=%d) -- aborting\n", what, m, n, k);
+            fprintf(stderr, "ds4: [v41] %s NVFP4 사용 가능한 알고리즘이 없습니다(m=%d n=%d k=%d). 중단합니다\n", what, m, n, k);
             ok = 0;
         } else if (g_v41_lt_n >= V41_NVFP4_MAX_CACHE) {
-            fprintf(stderr, "ds4: [v41] NVFP4 算法缓存满(%d 种形状) -- aborting\n", g_v41_lt_n); ok = 0;
+            fprintf(stderr, "ds4: [v41] NVFP4 알고리즘 캐시가 가득 찼습니다(형상 %d개). 중단합니다\n", g_v41_lt_n); ok = 0;
         } else {
             slot = g_v41_lt_n++;
             g_v41_lt[slot].m = m; g_v41_lt[slot].n = n; g_v41_lt[slot].k = k; g_v41_lt[slot].ldd = ldd;
@@ -172,10 +172,10 @@ static int v41_matmul_nvfp4(const void *model_map, uint64_t model_size, uint64_t
     /* 缩放张量按 128×4 swizzle 补齐(少分配不报错只越界读) */
     const uint64_t wsc_n = ((out_dim + 127u) / 128u * 128u) * ((nkb + 3u) / 4u * 4u);
     const uint64_t xsc_n = ((n_tok + 127u) / 128u * 128u) * ((nkb + 3u) / 4u * 4u);
-    uint8_t *wnib = (uint8_t *)v41_grow(&g_v41_wnib, out_dim * (in_dim / 2u), "v41 nvfp4 权重");
-    uint8_t *wsc  = (uint8_t *)v41_grow(&g_v41_wsc, wsc_n, "v41 nvfp4 权重缩放");
-    uint8_t *xnib = (uint8_t *)v41_grow(&g_v41_xnib, (uint64_t)n_tok * (in_dim / 2u), "v41 nvfp4 激活");
-    uint8_t *xsc  = (uint8_t *)v41_grow(&g_v41_xsc, xsc_n, "v41 nvfp4 激活缩放");
+    uint8_t *wnib = (uint8_t *)v41_grow(&g_v41_wnib, out_dim * (in_dim / 2u), "v41 NVFP4 가중치");
+    uint8_t *wsc  = (uint8_t *)v41_grow(&g_v41_wsc, wsc_n, "v41 NVFP4 가중치 스케일");
+    uint8_t *xnib = (uint8_t *)v41_grow(&g_v41_xnib, (uint64_t)n_tok * (in_dim / 2u), "v41 NVFP4 활성값");
+    uint8_t *xsc  = (uint8_t *)v41_grow(&g_v41_xsc, xsc_n, "v41 NVFP4 활성값 스케일");
     if (!wnib || !wsc || !xnib || !xsc) return 0;
     if (!g_v41_nvfp4_clamped) (void)cudaMalloc(&g_v41_nvfp4_clamped, sizeof(unsigned long long));
     /* 补齐区必须清零: 那里的字节会被张量核读到(只影响补齐行的无效输出, 但脏值可能是 NaN) */

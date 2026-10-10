@@ -26,7 +26,7 @@ int ds4_gpu_attention_output_low_q4k_tensor(
     if (!out_a) return 0;
     /* 09-07: 分组 tile 核(cuda_q4k_tile.inc.cu)取代 16-lane dp4a 核, 激活仍是 q8_0 32 值块(精度不变); 容差级(结合律)。 */
     if (!q4k_tile_supported((uint32_t)kblocks, (uint32_t)low_dim)) {
-        fprintf(stderr, "ds4: attn_output_a q4_K: 每行 %llu 块/低维 %llu 不在 tile 核支持的形状\n",
+        fprintf(stderr, "ds4: attn_output_a q4_K: 행당 %llu블록/하위 차원 %llu는 타일 커널에서 지원하지 않는 형상입니다\n",
                 (unsigned long long)kblocks, (unsigned long long)low_dim);
         return 0;
     }

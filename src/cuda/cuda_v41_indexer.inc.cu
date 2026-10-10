@@ -102,7 +102,7 @@ int ds4_gpu_v41_indexer_score_tensor(ds4_gpu_tensor *score, const ds4_gpu_tensor
                                      uint32_t n_tok, uint32_t pos0, uint32_t ng, uint32_t n_head, uint32_t dk, uint32_t ratio,
                                      const ds4_gpu_tensor *posd) {
     if (!score || !q || !k || !weights || (dk % 32u) || ratio == 0) return 0;
-    if (dk / 32u > 4u) { fprintf(stderr, "ds4: [v41] indexer 打分核只实现 dk ≤ 128(每 lane ≤ 4 维)\n"); return 0; }
+    if (dk / 32u > 4u) { fprintf(stderr, "ds4: [v41] 인덱서 점수 커널은 dk ≤ 128(레인당 ≤ 4차원)만 지원합니다\n"); return 0; }
     if (posd && n_tok > 8u) return 0;   /* graph 路: 纯解码 1 行或投机验证批 ≤ 8 行(核里 ng 按 pos0 + n 算) */
     if (ng == 0) return 1;
     if (cand_list && (cand_bs == 0u || cand_cap == 0u)) return 0;
@@ -145,7 +145,7 @@ __device__ __forceinline__ static uint32_t v41_topk_key(float f) {
 static v41_scratch g_v41_cand_blk[DS4_GPU_MAX_LANES];   /* 按并发道分(cuda_lifecycle.inc.cu g_cur_lane): 各路的候选块暂存不互踩 */
 int ds4_gpu_v41_candidate_scratch_prepare(uint32_t n_tok, uint32_t nb) {
     if (n_tok == 0u || nb == 0u) return 1;
-    return v41_grow(&g_v41_cand_blk[g_cur_lane], (uint64_t)n_tok * nb * 5u, "v41 候选块") ? 1 : 0;
+    return v41_grow(&g_v41_cand_blk[g_cur_lane], (uint64_t)n_tok * nb * 5u, "v41 후보 블록") ? 1 : 0;
 }
 __global__ static void v41_candidate_kernel(int32_t *list, const float *score, uint32_t pos0, uint32_t ng, uint32_t ratio,
                                             uint32_t topk_blocks, uint32_t bs, const int32_t *posd,
@@ -230,7 +230,7 @@ int ds4_gpu_v41_candidate_blocks_tensor(ds4_gpu_tensor *cand_list, const ds4_gpu
     if (ng == 0) return 1;
     const uint32_t nb = (ng + block_size - 1u) / block_size;
     /* 直发路(预填 / 暖身)在这里现长; graph 路进来时 prepare 已按桶上限长够, 这一发是 no-op */
-    float *blk = (float *)v41_grow(&g_v41_cand_blk[g_cur_lane], (uint64_t)n_tok * nb * 5u, "v41 候选块");
+    float *blk = (float *)v41_grow(&g_v41_cand_blk[g_cur_lane], (uint64_t)n_tok * nb * 5u, "v41 후보 블록");
     if (!blk) return 0;
     v41_candidate_kernel<<<n_tok, 256, 0, g_cur_stream>>>((int32_t *)cand_list->ptr, (const float *)score->ptr, pos0, ng, ratio,
                                                             topk_blocks, block_size, posd ? (const int32_t *)posd->ptr : NULL,

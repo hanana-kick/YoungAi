@@ -28,7 +28,7 @@ int ds4_gpu_register_aux_model_map(const void *map, uint64_t size) {
             (void)cudaFree(dev);
         }
         (void)cudaGetLastError();
-        fprintf(stderr, "ds4: CUDA aux map device copy failed (%.2f GiB); 回落懒注册\n",
+        fprintf(stderr, "ds4: CUDA 보조 매핑의 GPU 복사 실패(%.2f GiB); 지연 등록으로 전환\n",
                 (double)size / 1073741824.0);
         return 0;
     }
@@ -39,7 +39,7 @@ int ds4_gpu_register_aux_model_map(const void *map, uint64_t size) {
         (void)cudaGetLastError(); (void)cudaHostUnregister((void *)map); return 0;
     }
     g_model_ranges.push_back({map, 0, size, (char *)dev, (void *)map, (char *)dev, size, 1, 0});
-    fprintf(stderr, "ds4: CUDA registered aux map %.2f GiB (host-mapped, 旧法)\n",
+    fprintf(stderr, "ds4: CUDA 보조 매핑 등록 %.2f GiB(호스트 매핑, 기존 방식)\n",
             (double)size / 1073741824.0);
     return 1;
 }
@@ -80,7 +80,7 @@ int ds4_gpu_set_model_map(const void *model_map, uint64_t model_size) {
      * ②cuda_v41_3.inc.cu 的逐层流式路对已注册的整映射再 cudaHostRegister 子段会报 AlreadyRegistered。
      * 不注册 ⇒ 装进缓存的段照常命中设备副本, 装不下的专家 blob 走逐层注册→算→注销, 任何时刻最多钉住一层。 */
     if (g_model_cache_limit_override) {
-        fprintf(stderr, "ds4: CUDA 权重缓存封顶 %.2f GiB: 整映射不注册, 装不下的专家 blob 走逐层流式\n",
+        fprintf(stderr, "ds4: CUDA 가중치 캐시 상한 %.2f GiB: 전체 매핑은 등록하지 않고 메모리에 담지 못한 전문가 blob은 레이어별 스트리밍\n",
                 (double)cuda_model_cache_limit_bytes() / 1073741824.0);
         return 1;
     }

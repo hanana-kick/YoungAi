@@ -29,7 +29,7 @@
  * misaligned 崩(CUDA flush failed: misaligned address), 只能退成 4 次 uint 读, 多出来的指令
  * 吃掉了省下的冲突; ②8 的倍数的跨距做不到 bank 全覆盖(stride/4 必为偶数) —— 对齐与全覆盖互斥。
  * ⇒ 这个核的瓶颈也不是 shared bank。 */
-/* 码本搬进 shared: 8 条 load 一起发再一起存(2026-09-18)。原来一条读一条存, 每条都等一次 L2(143 ns), 64 KB 要
+/* 码本搬공유 메모리 사용: 8 条 load 一起发再一起存(2026-09-18)。原来一条读一条存, 每条都等一次 L2(143 ns), 64 KB 要
  * 等 8 次; 这段是全 block 同步段, SM 里没别的活能盖住它。码本只保证 8 B 对齐(载荷偏移交替 8/16 对齐), 只能 uint2。 */
 __device__ __forceinline__ static void v41_vq_cb_to_shared(uint8_t *dst, const uint8_t *src, uint32_t bytes) {   /* bytes 是 8 的倍数 */
     const uint2 *s = (const uint2 *)src; uint2 *d = (uint2 *)dst;
@@ -87,7 +87,7 @@ __device__ __forceinline__ static uint16_t v41_vq_swiglu(float gi, float ui, flo
  * ⇒ 想让验证 k 位便宜过验证 1 位, 只剩两条路: ①每个 token 读更少的权重(换量化格式, 那是质量线的决定);
  * ②把这个点积搬上张量核。**别再从"少读点字节"这个方向来了** —— 连同 09-16 那三次位流读法的判负,
  * 这是第四次同源。 */
-/* gate/up 同核(官方 Expert: w1/w3 出 bf16 → f32 截断 → silu(g)·u → bf16); cb_bytes>0: 码本进 shared(grid.x 按 32 行),
+/* gate/up 同核(官方 Expert: w1/w3 出 bf16 → f32 截断 → silu(g)·u → bf16); cb_bytes>0: 码本공유 메모리 사용(grid.x 按 32 行),
  * 否则全局 gather(grid.x 按 8 行)。x 已是 bf16 格点(调用方 rms_norm 出口舍过)。 */
 /* ★这个核一个字都别乱动★(2026-09-16 实撞): 1024 线程 × **64 个寄存器** × 64 KB 码本, 三样正好把一个 SM
  * 吃满(启动日志自报"每 SM 挂 1 个 block, 占用率 67%")。只是把 `pair = blockIdx.y` 改成
@@ -122,7 +122,7 @@ __global__ static void v41_vq_gateup_kernel(uint16_t *h, const uint8_t *blob, co
     const bool lead = (threadIdx.x & 31u) == 0u;
     if (cb_bytes) {
         /* ★一块 shared 用两遍★(2026-09-14): gate 与 up 各有一本 64 KB 码本, 一次性放两本要 128 KB,
-         * 超过 GB10 每 block 的上限(99 KB) ⇒ 整个核被打回全局 gather。改成先载 gate 算完这 block 的
+         * 超过 GB10 每 block 的上限(99 KB) ⇒ 整个核被打전역 gather로 전환。改成先载 gate 算完这 block 的
          * 全部行, 同步后把同一块 shared 覆盖成 up 的码本再算 u: 峰值只要一本的量。
          * ★循环里不能 return★: 后面还有 __syncthreads, 少一个 warp 就死锁, 越界的行只跳过计算。
          * gate 的结果以 bf16 暂存在 h 本行的位置(它本来就在 bf16 格点上, 存取无损), 同一个 lane 写、同一个 lane 读回。 */
@@ -241,7 +241,7 @@ static int v41_vq_persist_n_launch(int stage, uint32_t n_tok, uint16_t *h, float
                                    uint32_t np, float clamp, uint32_t cbb, const float *gr);
 /* ★两个核分开判定★(2026-09-14 实撞): 码本 4096×16 B = 64 KB/本。gateup 要 gate+up 两本 = 128 KB,
  * 超过 GB10 每 block 的动态 shared 上限; down 只要一本 64 KB, 本来放得下。原先一个 ok 变量把两个核
- * 绑在一起, gateup 申请失败就把 down 一起打回全局 gather —— 解码实测只有 1.60 t/s(prefill 45 t/s 正常)。 */
+ * 绑在一起, gateup 申请失败就把 down 一起打전역 gather로 전환 —— 解码实测只有 1.60 t/s(prefill 45 t/s 正常)。 */
 template <int NBIT, int V3, int EXT>
 static int v41_vq_fused_moe_n(float *out, const uint8_t *blob, uint32_t IN, uint32_t MID, uint32_t OUT,
                               const int32_t *sel, const float *w, uint32_t K, float clamp, const float *x, uint32_t n_tok, uint32_t nc,
@@ -268,11 +268,11 @@ static int v41_vq_fused_moe_n(float *out, const uint8_t *blob, uint32_t IN, uint
                     static uint64_t tot = 0, bad = 0;
                     tot += nx; bad += hc;
                     if ((tot / nx) % 40u == 0u)
-                        fprintf(stderr, "[vq-grid] 激活不在 bf16 格点的元素: 累计 %llu / %llu\n",
+                        fprintf(stderr, "[vq-grid] 활성값 중 BF16 격자에 맞지 않는 원소: 누적 %llu / %llu\n",
                                 (unsigned long long)bad, (unsigned long long)tot);
                 }
             }
-            v41_f16range_probe(x, NULL, nx, 0, "激活(x)");   /* mtp-2 §5.3: 定 f16 还是 TF32 */
+            v41_f16range_probe(x, NULL, nx, 0, "활성값(x)");   /* mtp-2 §5.3: 定 f16 还是 TF32 */
         }
     }
     const uint32_t cbb = nc * (V3 ? 8u : 16u);   /* v3 码本每词 8 个 E4M3 ⇒ nc8192 也只 64 KB, 与今天 nc4096 f16 同大 */
@@ -285,7 +285,7 @@ static int v41_vq_fused_moe_n(float *out, const uint8_t *blob, uint32_t IN, uint
      * 表面上是"投机一开就崩", 报错还挂在 gateup 头上, 与码本大小看不出关系。
      * 两件事一起修: ①static 局部变量在函数模板里是**每个实例一份**, 正好对上"每个 (NBIT,V3,EXT) 是不同的
      * 核函数, 各批各的"; ②判据从"判定过没有"换成"已批的量够不够这一层用", 不够就按新的量再批一次。
-     * 批不上去(超设备上限)时 s_*_optin 不动 ⇒ 这一层自动回全局 gather, 而已经批好的小码本层不受牵连。 */
+     * 批不上去(超设备上限)时 s_*_optin 不动 ⇒ 这一层自动전역 gather로 전환, 而已经批好的小码本层不受牵连。 */
     static uint32_t s_gu_optin = 0u, s_dn_optin = 0u;   /* 这个实例已批到的动态 shared 字节; 0 = 还没批过 */
     if (s_gu_optin < cbb || s_dn_optin < cbb) {   /* 两个核各问各的: gateup 要两本(gate+up), down 只要一本 */
         int cap = 0; (void)cudaDeviceGetAttribute(&cap, cudaDevAttrMaxSharedMemoryPerBlockOptin, 0);
@@ -308,19 +308,19 @@ static int v41_vq_fused_moe_n(float *out, const uint8_t *blob, uint32_t IN, uint
         int blocks_sm = 0;
         const int thr_blk = (int)(V41_VQ_WARPS * 32u);
         (void)cudaOccupancyMaxActiveBlocksPerMultiprocessor(&blocks_sm, v41_vq_gateup_kernel<NBIT, V3, EXT, 0>, thr_blk, (size_t)cbb);
-        fprintf(stderr, "ds4: [v41] 设备: %d SM / 每 SM shared %d KB / 每 SM 线程 %d / 每 SM 寄存器 %d\n"
-                        "ds4: [v41] VQ gateup 核: %d 线程/block, 每线程 %d 寄存器, 动态 shared %u KB"
-                        " ⇒ 每 SM 挂 %d 个 block = %d 线程, **占用率 %.0f%%**\n"
-                        "ds4: [v41]   谁卡的: shared %d 份 / 寄存器 %d 份 / 线程槽 %d 份(取最小)\n",
+        fprintf(stderr, "ds4: [v41] GPU: SM %d개 / SM당 공유 메모리 %d KB / SM당 스레드 %d개 / SM당 레지스터 %d개\n"
+                        "ds4: [v41] VQ gateup 커널: 블록당 스레드 %d개, 스레드당 레지스터 %d개, 동적 공유 메모리 %u KB"
+                        " ⇒ SM당 블록 %d개 = 스레드 %d개, **점유율 %.0f%%**\n"
+                        "ds4: [v41]   점유율 제한 요인: 공유 메모리 %d / 레지스터 %d / 스레드 슬롯 %d(최솟값 적용)\n",
                 nsm, sh_sm >> 10, thr_sm, regs_sm, thr_blk, fa.numRegs, cbb >> 10,
                 blocks_sm, blocks_sm * thr_blk, thr_sm ? 100.0 * blocks_sm * thr_blk / thr_sm : 0.0,
                 cbb ? sh_sm / (int)cbb : 0,
                 fa.numRegs ? regs_sm / (fa.numRegs * thr_blk) : 0, thr_sm / thr_blk);
         (void)cudaGetLastError();
-        if (og) s_gu_optin = cbb;   /* 批不上去就不动, 这一层自动回全局 gather(下一层码本小的照样走 shared) */
+        if (og) s_gu_optin = cbb;   /* 批不上去就不动, 这一层自动전역 gather로 전환(下一层码本小的照样走 shared) */
         if (od) s_dn_optin = cbb;
-        fprintf(stderr, "ds4: [v41] VQ 码本 %u×16 B(%u KB/本, NBIT %d); 设备每 block 动态 shared 上限 %d KB ⇒ gate+up %s / down %s\n",
-                nc, cbb >> 10, NBIT, cap >> 10, og ? "进 shared(一块用两遍)" : "回全局 gather", od ? "进 shared" : "回全局 gather");
+        fprintf(stderr, "ds4: [v41] VQ 코드북 %u×16 B(코드북당 %u KB, NBIT %d); GPU 블록당 동적 공유 메모리 한도 %d KB ⇒ gate+up %s / down %s\n",
+                nc, cbb >> 10, NBIT, cap >> 10, og ? "공유 메모리 사용(블록당 2회)" : "전역 gather로 전환", od ? "공유 메모리 사용" : "전역 gather로 전환");
     }
     const bool shg = cbb <= s_gu_optin, shd = cbb <= s_dn_optin;
     /* ★2026-09-16 判负存档: "多 token 小批按专家去重, 让重复的专家权重只读一份"(mtp.md M3)★
@@ -355,10 +355,10 @@ static int v41_vq_fused_moe_n(float *out, const uint8_t *blob, uint32_t IN, uint
     {
         const cudaError_t pre = cudaGetLastError();
         if (pre != cudaSuccess)
-            fprintf(stderr, "ds4: ★[v41] 进 vq gateup 之前就有未清的 CUDA 错误: %s —— 真凶是上游某一发没检查的核★\n",
+            fprintf(stderr, "ds4: 오류: [v41] VQ gateup 실행 전에 처리되지 않은 CUDA 오류가 있습니다: %s. 이전 커널에서 발생한 오류일 수 있습니다\n",
                     cudaGetErrorString(pre));
     }
-    /* 验证批常驻核(v3 + 码本进 shared + 没被 --no-vq-group 钉回): 一发顶替下面"分组 + 逐对"两路 */
+    /* 验证批常驻核(v3 + 码本공유 메모리 사용 + 没被 --no-vq-group 钉回): 一发顶替下面"分组 + 逐对"两路 */
     const bool pern = ord && V3 && shg && shd && g_ds4_v41_vq_group &&
         v41_vq_persist_n_launch<NBIT, EXT>(0, n_tok, h, part, blob, sel, ord, (const uint32_t *)xb, IN, MID, OUT, K, (uint32_t)np, clamp, cbb, gr);
     int grp = 0;   /* 1 = 多 token 的组走分组核, 逐对核只算单成员的对(两条路写不相交的 pair 槽) */
@@ -379,15 +379,15 @@ static int v41_vq_fused_moe_n(float *out, const uint8_t *blob, uint32_t IN, uint
          * shared 超过这个实例 opt-in 过的量 / grid 某一维是 0 / 线程数超 1024, 三者都一眼可见。
          * ★shared 那一项尤其要盯★: SetAttribute 只在第一次进这个函数时做一次, 而 cbb 是**逐层**算的
          * (码本大小 nc 随层变) —— 后面某层 cbb 比第一层大, 就是这个报错。 */
-        fprintf(stderr, "ds4: [v41] gateup 启动参数: grid(%u,%u) block %u 动态 shared %u B; "
-                        "NBIT %d V3 %d EXT %d SORTED %d; n_tok %u K %u np %llu IN %u MID %u nc %u cbb %u B 已批 %u B\n",
+        fprintf(stderr, "ds4: [v41] gateup 실행 매개변수: grid(%u,%u) block %u 동적 공유 메모리 %u B; "
+                        "NBIT %d V3 %d EXT %d SORTED %d; n_tok %u K %u np %llu IN %u MID %u nc %u cbb %u B 설정 %u B\n",
                 (MID + rg - 1u) / rg, (unsigned)np, tg, shg ? cbb : 0u,
                 NBIT, V3, EXT, ord ? 1 : 0, n_tok, K, (unsigned long long)np, IN, MID, nc, cbb, s_gu_optin);
         return 0;
     }
     {   /* h(swiglu 出口, bf16 格点)也要过 f16 范围: 它是 down 那一发 B 片的来源 */
         extern int g_ds4_v41_prof;
-        if (g_ds4_v41_prof) v41_f16range_probe(NULL, h, np * MID, 1, "中间量(h)");
+        if (g_ds4_v41_prof) v41_f16range_probe(NULL, h, np * MID, 1, "중간값(h)");
     }
     if (grp > 0 && v41_vq_grp_launch<NBIT, V3, EXT>(1, n_tok, h, part, blob, sel, (const uint32_t *)xb, IN, MID, OUT, K, clamp, cbb, gr, ord, (uint32_t)np) < 0) return 0;
     if (pern) { if (!v41_vq_persist_n_launch<NBIT, EXT>(1, n_tok, h, part, blob, sel, ord, (const uint32_t *)xb, IN, MID, OUT, K, (uint32_t)np, clamp, cbb, gr)) return 0; }
